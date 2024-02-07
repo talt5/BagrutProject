@@ -5,93 +5,159 @@
 # Client
 ##############################################################
 import tkinter as tk
+from tkinter import font as tkfont
 import threading
 import socket
 import hashlib
 import os
-import panda3d
+# import panda3d
 from enum import IntEnum
 from cryptography.fernet import Fernet
 
-PACKET_SIZE = 1024
-HEADER_LENGTH = 64
 
+class ServerComms:
+    def __init__(self, server_ip, server_port):
+        self.server_ip = server_ip
+        self.server_port = server_port
+        self.commsdata = ServerCommsData()
+        self.client = None
 
-PORT = 8820
-SERVER = "10.100.102.8"
-ADDRESS = (SERVER, PORT)
-FORMAT = "utf-8"
-SEPERATOR = "█"
+    def start(self):
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect((Constants.SERVER, Constants.PORT))
+            self.client = client
+            recv = threading.Thread(target=self.receive_packet)
+            recv.start()
+        except socket.error as e:
+            print(e)
 
-server_salt = None
+    def receive_packet(self):
+        connected = True
 
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-print(f"active connections {threading.active_count() - 1}")
+        while connected:
+            try:
+                print(f"active connections {threading.active_count() - 1}")
+                packet_header = int(self.client.recv(Constants.HEADER_LENGTH).decode())
+                packet_data = self.client.recv(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)
+                print(packet_header)
+                self.handle_packet(packet_header, packet_data)
+            except Exception as error:
+                connected = False
+                print(error)
+        self.client.close()
 
+    # TODO: make an error message in tkinter if connection was cut during transmission.
+    def send_to_server(self, header, msg):
+        try:
+            while True:
+                header = str(header).zfill(Constants.HEADER_LENGTH)
+                packet = header + str(msg)
+                print(packet)
+                self.client.send(packet.encode(Constants.FORMAT))
+                break
+        except socket.error as e:
+            print(e)
 
-def start_listening_to_server():
-    client.connect(ADDRESS)
-    recv = threading.Thread(target=receive_packet)
-    recv.start()
+    def register_action(self, fullname, email, phonenum, username, password):
 
+        self.send_to_server(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, "saltpls")
 
-def register_action(fullname, email, phonenum, username, password):
-    global server_salt
-    server_salt = None
-    send_to_server(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, "saltpls")
-    while server_salt is None:
-        continue
-    if check_if_in_blacklist_reg(fullname, email, phonenum, username, password) != 0:
-        print("data is in blacklist")
-        return
-    password = password_encrypt(password)
-    header = ResponseCodes.REGIST_HEADER_CODE
-    msg = str(fullname) + SEPERATOR + str(email) + SEPERATOR + str(phonenum) + SEPERATOR + str(
-        username) + SEPERATOR + str(password)
-    snd = threading.Thread(target=send_to_server(header, msg))
-    snd.start()
-    server_salt = None
+        while self.commsdata.get_salt() is None:
+            continue
 
+        # TODO: make an error message for each blacklisted entry
+        if self.check_if_in_blacklist_reg(fullname, email, phonenum, username, password) != 0:
+            print("data is in blacklist")
+            return
 
-def login_action(username, password):
-    global server_salt
-    server_salt = None
-    send_to_server(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, "saltpls")
-    while server_salt is None:
-        pass
-    if check_if_in_blacklist_login(username, password) != 0:
-        print("data is in blacklist")
-        return
-    password = password_encrypt(password)
-    header = ResponseCodes.LOGIN_HEADER_CODE
-    msg = str(username) + SEPERATOR + str(password)
-    snd = threading.Thread(target=send_to_server(header, msg))
-    snd.start()
-    server_salt = None
+        password = self.password_encrypt(password)
+        header = ResponseCodes.REGIST_HEADER_CODE
+        msg = str(fullname) + Constants.SEPERATOR + str(email) + Constants.SEPERATOR + str(
+            phonenum) + Constants.SEPERATOR + str(
+            username) + Constants.SEPERATOR + str(password)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+        self.commsdata.set_salt(None)
 
+    def login_action(self, username, password):
+        self.commsdata.set_salt(None)
+        self.send_to_server(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, "saltpls")
 
-def check_if_in_blacklist_reg(fullname, email, phonenum, username, password):
-    blacklist = (SEPERATOR)
-    if blacklist in fullname or not 0 < len(fullname) <= 64:
-        return 1
-    if blacklist in email or not 0 < len(email) <= 64:
-        return 2
-    if blacklist in phonenum or not represents_int(phonenum) or int(phonenum) <= 0 or not len(phonenum) == 10:
-        return 3
-    if blacklist in username or not 4 <= len(username) <= 32:
-        return 4
-    if blacklist in password or not 8 <= len(password) <= 32:
-        return 5
-    return 0
+        while self.commsdata.get_salt() is None:
+            pass
 
+        # TODO: make an error message for each blacklisted entry
+        if self.check_if_in_blacklist_login(username, password) != 0:
+            print("data is in blacklist")
+            return
 
-def check_if_in_blacklist_login(username, password):
-    blacklist = (SEPERATOR)
-    if blacklist in username or not 1 <= len(username) <= 32:
-        return 4
-    if blacklist in password or not 1 <= len(password) <= 32:
-        return 5
-    return 0
+        password = self.password_encrypt(password)
+        header = ResponseCodes.LOGIN_HEADER_CODE
+        msg = str(username) + Constants.SEPERATOR + str(password)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+        self.commsdata.set_salt(None)
+
+    def handle_packet(self, header, data):
+        match header:
+            case ResponseCodes.REGIST_SUCCESS_HEADER_CODE:
+                print("Successfully registered.")
+            case ResponseCodes.REGIST_FAIL_HEADER_CODE:
+                print("Failed to register")
+            case ResponseCodes.REGIST_FAIL_HEADER_CODE:
+                print("Failed to register")
+            case ResponseCodes.REGIST_FAIL_USREXIST_HEADER_CODE:
+                print("Failed to register - user already exists")
+            case ResponseCodes.REGIST_FAIL_INBLACK_HEADER_CODE:
+                print("Failed to register - input in blacklist")
+            case ResponseCodes.LOGIN_SUCCESS_HEADER_CODE:
+                print("Successfully logged in")
+                seperated_data = data.decode().split(Constants.SEPERATOR)
+                self.commsdata.set_userId(seperated_data[0])
+                self.commsdata.set_username(seperated_data[1])
+                self.commsdata.set_nickname(seperated_data[2])
+                app.show_frame("ChatPage")
+            case ResponseCodes.LOGIN_FAIL_HEADER_CODE:
+                print("Failed to login - wrong user or pass")
+            case ResponseCodes.LOGIN_FAIL_INBLACK_HEADER_CODE:
+                print("Failed to login - input in blacklist")
+            case ResponseCodes.ASK_FOR_SALT_HEADER_CODE:
+                self.commsdata.set_salt(data.decode())
+            case ResponseCodes.ASK_FOR_SALT_FAIL_HEADER_CODE:
+                print("Failed to get salt")
+
+    def password_encrypt(self, password):
+        local_salt = "saltysaltsohot".encode()
+        f = Fernet(self.commsdata.get_salt())
+        hashed_password = hashlib.pbkdf2_hmac("sha256", password.encode(), local_salt, 100000).hex().encode()
+        encrypted_password = f.encrypt(hashed_password).decode()
+        return encrypted_password
+
+    def check_if_in_blacklist_reg(self, fullname, email, phonenum, username, password):
+        blacklist = (Constants.SEPERATOR)
+        if blacklist in fullname or not 0 < len(fullname) <= 64:
+            return 1
+        if blacklist in email or not 0 < len(email) <= 64:
+            return 2
+        if blacklist in phonenum or not represents_int(phonenum) or int(phonenum) <= 0 or not len(phonenum) == 10:
+            return 3
+        if blacklist in username or not 4 <= len(username) <= 32:
+            return 4
+        if blacklist in password or not 8 <= len(password) <= 32:
+            return 5
+        return 0
+
+    def check_if_in_blacklist_login(self, username, password):
+        blacklist = (Constants.SEPERATOR)
+        if blacklist in username or not 1 <= len(username) <= 32:
+            return 4
+        if blacklist in password or not 1 <= len(password) <= 32:
+            return 5
+        return 0
+
+    def commsdata(self):
+        return self.commsdata
 
 
 def represents_int(data):
@@ -101,30 +167,6 @@ def represents_int(data):
         return False
     else:
         return True
-
-
-def send_to_server(header, msg):
-    while True:
-        header = str(header).zfill(HEADER_LENGTH)
-        packet = header + str(msg)
-        print(packet)
-        client.send(packet.encode(FORMAT))
-        break
-
-
-def receive_packet():
-    connected = True
-    while connected:
-        try:
-            print(f"active connections {threading.active_count() - 1}")
-            packet_header = int(client.recv(HEADER_LENGTH).decode())
-            packet_data = client.recv(PACKET_SIZE - HEADER_LENGTH)
-            print(packet_header)
-            handle_packet(packet_header, packet_data)
-        except Exception as error:
-            connected = False
-            print(error)
-    client.close()
 
 
 class ResponseCodes(IntEnum):
@@ -141,100 +183,168 @@ class ResponseCodes(IntEnum):
     LOGIN_FAIL_INBLACK_HEADER_CODE = 221
     ASK_FOR_SALT_HEADER_CODE = 3
     ASK_FOR_SALT_FAIL_HEADER_CODE = 32
+    NOTLOGGEDIN_HEADER_CODE = 4
 
 
-def handle_packet(header, data):
-    global server_salt
-    match header:
-        case ResponseCodes.REGIST_SUCCESS_HEADER_CODE:
-            print("Successfully registered.")
-        case ResponseCodes.REGIST_FAIL_HEADER_CODE:
-            print("Failed to register")
-        case ResponseCodes.REGIST_FAIL_HEADER_CODE:
-            print("Failed to register")
-        case ResponseCodes.REGIST_FAIL_USREXIST_HEADER_CODE:
-            print("Failed to register - user already exists")
-        case ResponseCodes.REGIST_FAIL_INBLACK_HEADER_CODE:
-            print("Failed to register - input in blacklist")
-        case ResponseCodes.LOGIN_SUCCESS_HEADER_CODE:
-            print("Successfully logged in")
-        case ResponseCodes.LOGIN_FAIL_HEADER_CODE:
-            print("Failed to login - wrong user or pass")
-        case ResponseCodes.LOGIN_FAIL_INBLACK_HEADER_CODE:
-            print("Failed to login - input in blacklist")
-        case ResponseCodes.ASK_FOR_SALT_HEADER_CODE:
-            server_salt = data.decode()
-        case ResponseCodes.ASK_FOR_SALT_FAIL_HEADER_CODE:
-            print("Failed to get salt")
+class App(tk.Tk):
+    def __init__(self, *args, **kwargs):
+        tk.Tk.__init__(self, *args, **kwargs)
+        self.title_font = tkfont.Font(family="Helvetica", size=18, weight="bold")
+        self.servercomms = ServerComms("127.0.0.1", Constants.PORT)
+        self.servercomms.start()
+
+        container = tk.Frame(self)
+        container.pack(side="top", fill="both", expand=True)
+        container.grid_rowconfigure(0, weight=1)
+        container.grid_columnconfigure(0, weight=1)
+
+        self.frames = {}
+        for Frame in (StartPage, LoginPage, RegistrationPage, ChatPage):
+            page_name = Frame.__name__
+            frame = Frame(parent=container, controller=self)
+            self.frames[page_name] = frame
+            frame.grid(row=0, column=0, sticky="nsew")
+
+        self.show_frame("StartPage")
+
+    def servercomms(self):
+        return self.servercomms
+
+    def show_frame(self, page_name):
+        """Show a frame for the given page name"""
+        frame = self.frames[page_name]
+        frame.update_frame()
+        frame.tkraise()
 
 
-def password_encrypt(password):
-    local_salt = "saltysaltsohot".encode()
-    f = Fernet(server_salt)
-    hashed_password = hashlib.pbkdf2_hmac("sha256", password.encode(), local_salt, 100000).hex().encode()
-    encrypted_password = f.encrypt(hashed_password).decode()
-    return encrypted_password
+class StartPage(tk.Frame):
+
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        label = tk.Label(self, text="This is the start page", font=controller.title_font)
+        label.pack(side="top", fill="x", pady=10)
+
+        button1 = tk.Button(self, text="Go to Page One",
+                            command=lambda: controller.show_frame("LoginPage"))
+        button2 = tk.Button(self, text="Go to Page Two",
+                            command=lambda: controller.show_frame("RegistrationPage"))
+        button1.pack()
+        button2.pack()
+
+    def update_frame(self):
+        pass
 
 
-def show_login_frame():
-    loginframe = tk.Toplevel(root)
-    username_login_entry = tk.Entry(loginframe, width=60)
-    username_login_entry.insert(0, "Username")
-    password_login_entry = tk.Entry(loginframe, width=60)
-    password_login_entry.insert(0, "Password")
-    submit_reg_button = tk.Button(loginframe, text="Submit", command=lambda: threading.Thread(login_action(
-        username_login_entry.get(),
-        password_login_entry.get())).start())
-    username_login_entry.pack()
-    password_login_entry.pack()
-    submit_reg_button.pack()
+class LoginPage(tk.Frame):
+
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        username_login_entry = tk.Entry(self, width=60)
+        username_login_entry.insert(0, "Username")
+        password_login_entry = tk.Entry(self, width=60)
+        password_login_entry.insert(0, "Password")
+        submit_reg_button = tk.Button(self, text="Submit",
+                                      command=lambda: threading.Thread(controller.servercomms.login_action(
+                                          username_login_entry.get(),
+                                          password_login_entry.get())).start())
+        back_button = tk.Button(self, text="Back", command=lambda: controller.show_frame("StartPage"))
+        username_login_entry.pack()
+        password_login_entry.pack()
+        submit_reg_button.pack()
+        back_button.pack()
+
+    def update_frame(self):
+        pass
 
 
-def show_registration_frame():
-    registrationframe = tk.Toplevel(root)
-    full_name_reg_entry = tk.Entry(registrationframe, width=60)
-    full_name_reg_entry.insert(0, "Full name")
-    email_reg_entry = tk.Entry(registrationframe, width=60)
-    email_reg_entry.insert(0, "Email")
-    username_reg_entry = tk.Entry(registrationframe, width=60)
-    username_reg_entry.insert(0, "Username")
-    password_reg_entry = tk.Entry(registrationframe, width=60)
-    password_reg_entry.insert(0, "Password")
-    phonenum_reg_entry = tk.Entry(registrationframe, width=60)
-    phonenum_reg_entry.insert(0, "Phone number")
-    submit_reg_button = tk.Button(registrationframe, text="Submit", command=lambda: threading.Thread(register_action(
-        full_name_reg_entry.get(),
-        email_reg_entry.get(),
-        phonenum_reg_entry.get(),
-        username_reg_entry.get(),
-        password_reg_entry.get())).start())
-    full_name_reg_entry.pack()
-    email_reg_entry.pack()
-    phonenum_reg_entry.pack()
-    username_reg_entry.pack()
-    password_reg_entry.pack()
-    submit_reg_button.pack()
+class RegistrationPage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        full_name_reg_entry = tk.Entry(self, width=60)
+        full_name_reg_entry.insert(0, "Full name")
+        email_reg_entry = tk.Entry(self, width=60)
+        email_reg_entry.insert(0, "Email")
+        username_reg_entry = tk.Entry(self, width=60)
+        username_reg_entry.insert(0, "Username")
+        password_reg_entry = tk.Entry(self, width=60)
+        password_reg_entry.insert(0, "Password")
+        phonenum_reg_entry = tk.Entry(self, width=60)
+        phonenum_reg_entry.insert(0, "Phone number")
+        submit_reg_button = tk.Button(self, text="Submit",
+                                      command=lambda: threading.Thread(controller.servercomms.register_action(
+                                          full_name_reg_entry.get(),
+                                          email_reg_entry.get(),
+                                          phonenum_reg_entry.get(),
+                                          username_reg_entry.get(),
+                                          password_reg_entry.get())).start())
+        back_button = tk.Button(self, text="Back", command=lambda: controller.show_frame("StartPage"))
+        full_name_reg_entry.pack()
+        email_reg_entry.pack()
+        phonenum_reg_entry.pack()
+        username_reg_entry.pack()
+        password_reg_entry.pack()
+        submit_reg_button.pack()
+        back_button.pack()
+
+    def update_frame(self):
+        pass
 
 
-# TK Init and frame creation
-root = tk.Tk()
-startingframe = tk.Frame(root)
+class ChatPage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
 
-root.title("Start menu")
+    def update_frame(self):
+        username_label = tk.Label(self, text=("Logged in as: " + self.controller.servercomms.commsdata.get_nickname()),
+                                  font=self.controller.title_font)
+        username_label.pack()
 
-# Creating TK UI Elements
-# startingframe
-login_button_start = tk.Button(startingframe, text="Login", command=show_login_frame)
-registration_button_start = tk.Button(startingframe, text="Register", command=show_registration_frame)
-# loginframe
-# registrationframe
-# TK UI Packing
-# startingframe
-login_button_start.pack()
-registration_button_start.pack()
-startingframe.pack()
-# loginframe
-# registrationframe
-root.after(100, start_listening_to_server)
 
-tk.mainloop()
+class ServerCommsData:
+    def __init__(self):
+        self.salt = None
+        self.userId = None
+        self.username = None
+        self.nickname = None
+
+    def get_salt(self):
+        return self.salt
+
+    def set_salt(self, salt):
+        self.salt = salt
+
+    def get_userId(self):
+        return self.userId
+
+    def set_userId(self, ID):
+        self.userId = ID
+
+    def get_username(self):
+        return self.username
+
+    def set_username(self, username):
+        self.username = username
+
+    def get_nickname(self):
+        return self.nickname
+
+    def set_nickname(self, nickname):
+        self.nickname = nickname
+
+
+class Constants:
+    PACKET_SIZE = 1024
+    HEADER_LENGTH = 64
+    SERVER = "127.0.0.1"
+    PORT = 8820
+    FORMAT = "utf-8"
+    SEPERATOR = "█"
+
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()

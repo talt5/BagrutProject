@@ -5,6 +5,7 @@
 # Server
 ##############################################################
 import os
+import traceback
 import socket
 import threading
 import database as database
@@ -46,7 +47,7 @@ class Server(object):
         print(f"new connection {addr}")
         connected = True
         self.count_of_conns += 1
-        client = ClientConnData(conn, addr)
+        client = ClientConnData(conn, addr, self.db)
 
         while connected:
 
@@ -56,6 +57,7 @@ class Server(object):
                 self.handle_packet(packet_header, packet_data, conn, addr, client)
 
             except Exception as error:
+                print(traceback.format_exc())
                 print(error)
                 connected = False
 
@@ -88,8 +90,9 @@ class Server(object):
                                             data_as_list[4])
                         self.db.select_all()
                         print("Inserted User Successfuly!")
+
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.REGIST_SUCCESS_HEADER_CODE, "Success regist", conn))
+                                               args=(ResponseCodes.REGIST_SUCCESS_HEADER_CODE, data_as_list[5], conn))
                         snd.start()
 
                     else:
@@ -128,8 +131,11 @@ class Server(object):
                     client.set_salt(None)
 
                     if serverpassword == clientpassword:
+                        client.set_user_using_ID(self.db.select_userdata_by_username(clientusername, "userId"))
+                        data_response = (str(client.get_userdata("userId")) + Constants.SEPERATOR + client.get_userdata(
+                            "fullname") + Constants.SEPERATOR + client.get_userdata("username"))
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, "Success login", conn))
+                                               args=(ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn))
                         snd.start()
 
                     else:
@@ -138,6 +144,7 @@ class Server(object):
                         snd.start()
 
                 except Exception as error:
+                    print(traceback.format_exc())
                     client.set_salt(None)
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
@@ -197,11 +204,13 @@ class Server(object):
 
 
 class ClientConnData:
-    def __init__(self, conn, addr):
+    def __init__(self, conn, addr, db):
         self.salt = None
         self.conn = conn
         self.addr = addr
-        self.userID = None
+        self.db = db
+        self.userId = None
+        self.userdata = {"nickname": None, "email": None, "phonenum": None, "username": None}
 
     def get_salt(self):
         return self.salt
@@ -215,11 +224,17 @@ class ClientConnData:
     def get_addr(self):
         return self.addr
 
-    def get_userID(self):
-        return self.userID
+    def get_userdata(self, spdata):
+        db_userdata = self.db.select_userdata_by_userId(self.userId, spdata)
+        return db_userdata
 
-    def set_userID(self, userID):
-        self.userID = userID
+    def set_user_using_ID(self, ID):
+        self.userId = ID
+        db_userdata = self.db.select_userdata_by_userId(ID, "all")
+        self.userdata["nickname"] = db_userdata[1]
+        self.userdata["email"] = db_userdata[2]
+        self.userdata["phonenum"] = db_userdata[3]
+        self.userdata["username"] = db_userdata[4]
 
 
 class ResponseCodes(IntEnum):
@@ -234,6 +249,7 @@ class ResponseCodes(IntEnum):
     LOGIN_FAIL_INBLACK_HEADER_CODE = 221
     ASK_FOR_SALT_HEADER_CODE = 3
     ASK_FOR_SALT_FAIL_HEADER_CODE = 32
+    NOTLOGGEDIN_HEADER_CODE = 4
 
 
 class Constants:
@@ -251,6 +267,17 @@ def represents_int(data):
         return False
     else:
         return True
+
+class TextMessage:
+    pass
+
+class ImageMessage:
+    pass
+# TODO: Create message queue for sending to users, and classes for each type of message
+# TODO: Create response codes for sending messages, and asking to receive queued messeges.
+# TODO: Implement RSA & AES Encryption on user info and messages.
+# TODO: Create a secondary database to store temporary queued messages.
+# TODO: Display messages for successful registration and login.
 
 server = Server("127.0.0.1", Constants.PORT)
 server.startServer()
