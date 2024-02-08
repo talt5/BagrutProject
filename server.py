@@ -9,9 +9,10 @@ import traceback
 import socket
 import threading
 import database as database
-import hashlib
-from enum import IntEnum, Enum
-from cryptography.fernet import Fernet
+from enum import IntEnum
+from rsa import RSAEncryption
+from aes import AESEncryption
+
 
 clients = []
 
@@ -36,7 +37,6 @@ class Server(object):
 
             while True:
                 conn, addr = server.accept()
-                clients.append(conn)
                 thread = threading.Thread(target=self.handle_client, args=(conn, addr))
                 thread.start()
                 print(f"active connections {threading.active_count() - 1}")
@@ -48,21 +48,37 @@ class Server(object):
         connected = True
         self.count_of_conns += 1
         client = ClientConnData(conn, addr, self.db)
+        self.clients.append(client)
+        client.rsa.generate_key()
 
         while connected:
 
             try:
-                packet_header = int(conn.recv(Constants.HEADER_LENGTH).decode())
-                packet_data = conn.recv(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)
-                self.handle_packet(packet_header, packet_data, conn, addr, client)
-
+                if client.encrypted_comms is True:
+                    nonce_len = int(conn.recv(2).decode())
+                    nonce = conn.recv(nonce_len)
+                    packet = conn.recv(Constants.PACKET_SIZE)
+                    decrypted_packet = client.aes.decrypt_data(packet, nonce)
+                    decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode()) # for now until a proper header protocol is made
+                    decrypted_data = decrypted_packet[Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
+                    print(decrypted_data)
+                    print(decrypted_header)
+                    print(decrypted_data)
+                    self.handle_packet(decrypted_header, decrypted_data, conn, addr, client)
+                else:
+                    packet_header = int(conn.recv(Constants.HEADER_LENGTH).decode())
+                    packet_data = conn.recv(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)
+                    self.handle_packet(packet_header, packet_data, conn, addr, client)
             except Exception as error:
                 print(traceback.format_exc())
                 print(error)
                 connected = False
 
         conn.close()
+        self.clients.remove(client)
         self.count_of_conns -= 1
+        print("removed client")
+        print(self.clients)
 
     def handle_packet(self, header, data, conn, addr, client):
         match header:
@@ -70,9 +86,6 @@ class Server(object):
 
                 try:
                     data_as_list = data.decode().split(Constants.SEPERATOR)
-                    f = Fernet(client.get_salt())
-                    data_as_list[4] = f.decrypt(data_as_list[4]).decode()
-                    client.set_salt(None)
 
                     if self.check_if_in_blacklist_reg(data_as_list[0], data_as_list[1], data_as_list[2],
                                                       data_as_list[3],
@@ -81,104 +94,139 @@ class Server(object):
                                                args=(
                                                    ResponseCodes.REGIST_FAIL_INBLACK_HEADER_CODE,
                                                    "Failed regist inblack",
-                                                   conn))
+                                                   conn, client))
                         snd.start()
                         return
 
                     if not self.db.check_if_username_exists(data_as_list[3]):
                         self.db.insert_user(data_as_list[0], data_as_list[1], data_as_list[2], data_as_list[3],
                                             data_as_list[4])
-                        self.db.select_all()
                         print("Inserted User Successfuly!")
 
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.REGIST_SUCCESS_HEADER_CODE, data_as_list[5], conn))
+                                               args=(ResponseCodes.REGIST_SUCCESS_HEADER_CODE, "registered beautifully", conn, client))
                         snd.start()
 
                     else:
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(ResponseCodes.REGIST_FAIL_USREXIST_HEADER_CODE,
-                                                     "Failed regist usrnm exist", conn))
+                                                     "Failed regist usrnm exist", conn, client))
                         snd.start()
 
                 except Exception as error:
-                    client.set_salt(None)
                     print("Did Not insert user!")
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
-                                           args=(ResponseCodes.REGIST_FAIL_HEADER_CODE, "Failed regist", conn))
+                                           args=(ResponseCodes.REGIST_FAIL_HEADER_CODE, "Failed regist", conn, client))
                     snd.start()
 
                 return
 
             case ResponseCodes.LOGIN_HEADER_CODE:
                 try:
+                    print("logging in")
                     data_as_list = data.decode().split(Constants.SEPERATOR)
-                    f = Fernet(client.get_salt())
                     clientusername, clientpassword = data_as_list[0], data_as_list[1]
+                    print(clientusername,clientpassword)
 
                     if self.check_if_in_blacklist_login(clientusername, clientpassword) != 0:
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(
                                                    ResponseCodes.LOGIN_FAIL_INBLACK_HEADER_CODE,
                                                    "Failed regist inblack",
-                                                   conn))
+                                                   conn, client))
                         snd.start()
                         return
 
-                    clientpassword = f.decrypt(clientpassword).decode()
                     serverpassword = self.db.select_userdata_by_username(clientusername, "password")
-                    client.set_salt(None)
 
                     if serverpassword == clientpassword:
                         client.set_user_using_ID(self.db.select_userdata_by_username(clientusername, "userId"))
                         data_response = (str(client.get_userdata("userId")) + Constants.SEPERATOR + client.get_userdata(
                             "fullname") + Constants.SEPERATOR + client.get_userdata("username"))
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn))
+                                               args=(ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn, client))
                         snd.start()
 
                     else:
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn))
+                                               args=(ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn, client))
                         snd.start()
 
                 except Exception as error:
                     print(traceback.format_exc())
-                    client.set_salt(None)
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
-                                           args=(ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn))
+                                           args=(ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn, client))
                     snd.start()
 
                 return
 
-            case ResponseCodes.ASK_FOR_SALT_HEADER_CODE:
+            case ResponseCodes.AES_KEY_HEADER_CODE:
                 try:
-                    client.set_salt(Fernet.generate_key().decode())
+                    decrypted_key = client.rsa.decrypt(data)
+                    client.aes.set_key(decrypted_key)
                     snd = threading.Thread(target=self.send_to_client,
-                                           args=(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, client.get_salt(), conn))
+                                           args=(ResponseCodes.AES_KEY_SUCCESS_HEADER_CODE, "Received AES key", conn, client))
+                    snd.start()
+                    client.encrypted_comms = True
+                    print("Encrypted communication enabled")
+
+                except Exception as error:
+                    print(error)
+                    snd = threading.Thread(target=self.send_to_client,
+                                           args=(
+                                               ResponseCodes.AES_KEY_FAIL_HEADER_CODE, "Failed to receive AES key",
+                                               conn, client))
+                    snd.start()
+
+                return
+
+            case ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE:
+                try:
+                    header = ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE
+                    public_key = client.rsa.public_key
+                    msg = public_key
+                    print(msg)
+                    print(client.rsa.bytes_to_key(msg))
+                    snd = threading.Thread(target=self.send_to_client,
+                                           args=(header, msg, conn, client))
                     snd.start()
 
                 except Exception as error:
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
                                            args=(
-                                               ResponseCodes.ASK_FOR_SALT_FAIL_HEADER_CODE, "Failed to create salt",
-                                               conn))
+                                               ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE, "Failed to receive RSA public key",
+                                               conn, client))
                     snd.start()
 
                 return
 
-    def send_to_client(self, header, msg, conn):
-        while True:
-            header = str(header).zfill(Constants.HEADER_LENGTH)
-            msg = str(msg)
-            packet = header + msg
-            print(packet)
-            conn.send(packet.encode())
-            print("done sending")
-            break
+    def send_to_client(self, header, msg, conn, client):
+        if client.encrypted_comms is True:
+            while True:
+                header = str(header).zfill(Constants.HEADER_LENGTH).encode()
+                if type(msg) is not bytes:
+                    msg = msg.encode()
+
+                encrypted_data, nonce = client.aes.encrypt_data(header+msg)
+                packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_data
+                print(packet)
+                conn.send(packet)
+                print("done sending")
+                break
+        else:
+            while True:
+                header = str(header).zfill(Constants.HEADER_LENGTH).encode()
+                if type(msg) is not bytes:
+                    msg = msg.encode()
+
+                packet = header + msg
+                print(packet)
+                conn.send(packet)
+                print("done sending")
+                break
 
     def check_if_in_blacklist_reg(self, fullname, email, phonenum, username, password):
         blacklist = (Constants.SEPERATOR)
@@ -198,25 +246,27 @@ class Server(object):
         blacklist = (Constants.SEPERATOR)
         if blacklist in username or not 1 <= len(username) <= 32:
             return 4
-        if blacklist in password or not 1 <= len(password) <= 1024:
+        if blacklist in password or not 1 <= len(password) <= 512:
             return 5
         return 0
 
 
 class ClientConnData:
     def __init__(self, conn, addr, db):
-        self.salt = None
+        self.aes = AESEncryption()
+        self.rsa = RSAEncryption()
+        self.encrypted_comms = False
         self.conn = conn
         self.addr = addr
         self.db = db
         self.userId = None
         self.userdata = {"nickname": None, "email": None, "phonenum": None, "username": None}
 
-    def get_salt(self):
-        return self.salt
+    def aes(self):
+        return self.aes
 
-    def set_salt(self, salt):
-        self.salt = salt
+    def rsa(self):
+        return self.rsa
 
     def get_conn(self):
         return self.conn
@@ -247,9 +297,13 @@ class ResponseCodes(IntEnum):
     LOGIN_SUCCESS_HEADER_CODE = 21
     LOGIN_FAIL_HEADER_CODE = 22
     LOGIN_FAIL_INBLACK_HEADER_CODE = 221
-    ASK_FOR_SALT_HEADER_CODE = 3
-    ASK_FOR_SALT_FAIL_HEADER_CODE = 32
-    NOTLOGGEDIN_HEADER_CODE = 4
+    ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE = 3
+    ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE = 31
+    ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE = 32
+    AES_KEY_HEADER_CODE = 4
+    AES_KEY_SUCCESS_HEADER_CODE = 41
+    AES_KEY_FAIL_HEADER_CODE = 42
+    NOTLOGGEDIN_HEADER_CODE = 5
 
 
 class Constants:
@@ -268,14 +322,18 @@ def represents_int(data):
     else:
         return True
 
+
 class TextMessage:
     pass
 
+
 class ImageMessage:
     pass
+
+
 # TODO: Create message queue for sending to users, and classes for each type of message
 # TODO: Create response codes for sending messages, and asking to receive queued messeges.
-# TODO: Implement RSA & AES Encryption on user info and messages.
+# TODO - done: Implement RSA & AES Encryption on user info and messages.
 # TODO: Create a secondary database to store temporary queued messages.
 # TODO: Display messages for successful registration and login.
 

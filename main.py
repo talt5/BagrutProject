@@ -7,12 +7,15 @@
 import tkinter as tk
 from tkinter import font as tkfont
 import threading
+import traceback
 import socket
 import hashlib
 import os
 # import panda3d
 from enum import IntEnum
 from cryptography.fernet import Fernet
+from rsa import RSAEncryption
+from aes import AESEncryption
 
 
 class ServerComms:
@@ -29,6 +32,7 @@ class ServerComms:
             self.client = client
             recv = threading.Thread(target=self.receive_packet)
             recv.start()
+            self.ask_for_rsa_public_key()
         except socket.error as e:
             print(e)
 
@@ -37,12 +41,23 @@ class ServerComms:
 
         while connected:
             try:
-                print(f"active connections {threading.active_count() - 1}")
-                packet_header = int(self.client.recv(Constants.HEADER_LENGTH).decode())
-                packet_data = self.client.recv(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)
-                print(packet_header)
-                self.handle_packet(packet_header, packet_data)
+                if self.commsdata.encrypted_comms is True:
+                    nonce_len = int(self.client.recv(2).decode())
+                    nonce = self.client.recv(nonce_len)
+                    packet = self.client.recv(Constants.PACKET_SIZE)
+                    decrypted_packet = self.commsdata.aes.decrypt_data(packet, nonce)
+                    decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode())
+                    decrypted_data = decrypted_packet[Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
+                    print(decrypted_data)
+                    self.handle_packet(decrypted_header, decrypted_data)
+                else:
+                    packet_header = int(self.client.recv(Constants.HEADER_LENGTH).decode())
+                    packet_data = self.client.recv(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)
+                    print(packet_header)
+                    print(packet_data)
+                    self.handle_packet(packet_header, packet_data)
             except Exception as error:
+                print(traceback.format_exc())
                 connected = False
                 print(error)
         self.client.close()
@@ -50,59 +65,68 @@ class ServerComms:
     # TODO: make an error message in tkinter if connection was cut during transmission.
     def send_to_server(self, header, msg):
         try:
-            while True:
-                header = str(header).zfill(Constants.HEADER_LENGTH)
-                packet = header + str(msg)
-                print(packet)
-                self.client.send(packet.encode(Constants.FORMAT))
-                break
+            if self.commsdata.encrypted_comms is True:
+                while True:
+                    header = str(header).zfill(Constants.HEADER_LENGTH).encode()
+                    if type(msg) is not bytes:
+                        msg = msg.encode()
+
+                    encrypted_packet, nonce = self.commsdata.aes.encrypt_data(header+msg)
+                    packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_packet
+                    print("sending: ".encode()+packet)
+                    self.client.send(packet)
+                    break
+            else:
+                while True:
+                    header = str(header).zfill(Constants.HEADER_LENGTH)
+                    if type(msg) is not bytes:
+                        msg = msg.encode()
+
+                    packet = header.encode() + msg
+                    print("sending: ".encode()+packet)
+                    self.client.send(packet)
+                    break
         except socket.error as e:
             print(e)
 
     def register_action(self, fullname, email, phonenum, username, password):
-
-        self.send_to_server(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, "saltpls")
-
-        while self.commsdata.get_salt() is None:
-            continue
 
         # TODO: make an error message for each blacklisted entry
         if self.check_if_in_blacklist_reg(fullname, email, phonenum, username, password) != 0:
             print("data is in blacklist")
             return
 
-        password = self.password_encrypt(password)
+        password = self.password_hash(password)
         header = ResponseCodes.REGIST_HEADER_CODE
         msg = str(fullname) + Constants.SEPERATOR + str(email) + Constants.SEPERATOR + str(
             phonenum) + Constants.SEPERATOR + str(
             username) + Constants.SEPERATOR + str(password)
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
-        self.commsdata.set_salt(None)
 
     def login_action(self, username, password):
-        self.commsdata.set_salt(None)
-        self.send_to_server(ResponseCodes.ASK_FOR_SALT_HEADER_CODE, "saltpls")
-
-        while self.commsdata.get_salt() is None:
-            pass
-
         # TODO: make an error message for each blacklisted entry
         if self.check_if_in_blacklist_login(username, password) != 0:
             print("data is in blacklist")
             return
 
-        password = self.password_encrypt(password)
+        password = self.password_hash(password)
         header = ResponseCodes.LOGIN_HEADER_CODE
         msg = str(username) + Constants.SEPERATOR + str(password)
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
-        self.commsdata.set_salt(None)
+
+    def ask_for_rsa_public_key(self):
+        header = ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE
+        msg = "rsapls"
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
 
     def handle_packet(self, header, data):
         match header:
             case ResponseCodes.REGIST_SUCCESS_HEADER_CODE:
-                print("Successfully registered.")
+                print("Successfully registered. Go to login")
+                app.show_frame("StartPage")
             case ResponseCodes.REGIST_FAIL_HEADER_CODE:
                 print("Failed to register")
             case ResponseCodes.REGIST_FAIL_HEADER_CODE:
@@ -122,17 +146,28 @@ class ServerComms:
                 print("Failed to login - wrong user or pass")
             case ResponseCodes.LOGIN_FAIL_INBLACK_HEADER_CODE:
                 print("Failed to login - input in blacklist")
-            case ResponseCodes.ASK_FOR_SALT_HEADER_CODE:
-                self.commsdata.set_salt(data.decode())
-            case ResponseCodes.ASK_FOR_SALT_FAIL_HEADER_CODE:
-                print("Failed to get salt")
+            case ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE:
+                public_key = self.commsdata.rsa.bytes_to_key(data.decode())
+                self.commsdata.rsa.set_public_key(public_key)
+                self.send_aes_key()
+            case ResponseCodes.AES_KEY_SUCCESS_HEADER_CODE:
+                self.commsdata.encrypted_comms = True
+                print("Encrypted communication enabled")
+            case ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE:
+                print("failed to receive rsa key")
 
-    def password_encrypt(self, password):
+    def send_aes_key(self):
+        header = ResponseCodes.AES_KEY_HEADER_CODE
+        key = self.commsdata.aes.get_key()
+        msg = self.commsdata.rsa.encrypt(key)
+
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def password_hash(self, password):
         local_salt = "saltysaltsohot".encode()
-        f = Fernet(self.commsdata.get_salt())
-        hashed_password = hashlib.pbkdf2_hmac("sha256", password.encode(), local_salt, 100000).hex().encode()
-        encrypted_password = f.encrypt(hashed_password).decode()
-        return encrypted_password
+        hashed_password = hashlib.pbkdf2_hmac("sha256", password.encode(), local_salt, 100000).hex()
+        return hashed_password
 
     def check_if_in_blacklist_reg(self, fullname, email, phonenum, username, password):
         blacklist = (Constants.SEPERATOR)
@@ -181,9 +216,13 @@ class ResponseCodes(IntEnum):
     LOGIN_SUCCESS_HEADER_CODE = 21
     LOGIN_FAIL_HEADER_CODE = 22
     LOGIN_FAIL_INBLACK_HEADER_CODE = 221
-    ASK_FOR_SALT_HEADER_CODE = 3
-    ASK_FOR_SALT_FAIL_HEADER_CODE = 32
-    NOTLOGGEDIN_HEADER_CODE = 4
+    ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE = 3
+    ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE = 31
+    ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE = 32
+    AES_KEY_HEADER_CODE = 4
+    AES_KEY_SUCCESS_HEADER_CODE = 41
+    AES_KEY_FAIL_HEADER_CODE = 42
+    NOTLOGGEDIN_HEADER_CODE = 5
 
 
 class App(tk.Tk):
@@ -310,12 +349,16 @@ class ServerCommsData:
         self.userId = None
         self.username = None
         self.nickname = None
+        self.aes = AESEncryption()
+        self.rsa = RSAEncryption()
+        self.encrypted_comms = False
+        self.aes.generate_key()
 
-    def get_salt(self):
-        return self.salt
+    def aes(self):
+        return self.aes
 
-    def set_salt(self, salt):
-        self.salt = salt
+    def rsa(self):
+        return self.rsa
 
     def get_userId(self):
         return self.userId

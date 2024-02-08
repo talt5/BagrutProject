@@ -63,16 +63,18 @@ class Users:
         conn.close()
         print("Record created successfully")
 
-    def select_userdata_by_id(self, userId, spdata):
+    def select_userdata_by_id(self, userId, spdata=None):
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
 
-        if spdata is None:
+        if spdata == "all" or spdata is None:
             operation = "SELECT userId, fullname, email, phonenum, username, password  from " + self.__tablename + " where " + self.__userId + "=" \
                         + str(userId)
-        elif spdata is not None:
+        elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password")):
             operation = "SELECT " + spdata + " from " + self.__tablename + " where " + self.__username + "=" + "'" + str(
                 userId) + "'"
+        else:
+            return None
 
         cursor = conn.execute(operation)
         for row in cursor:
@@ -89,7 +91,7 @@ class Users:
     def select_userdata_by_username(self, username, spdata):
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
-        if spdata == "all":
+        if spdata == "all" or spdata is None:
             operation = "SELECT userId, fullname, email, phonenum, username, password  from " + self.__tablename + " where " + self.__username + "=" \
                         + "'" + str(username) + "'"
         elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password")):
