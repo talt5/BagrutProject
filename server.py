@@ -1,14 +1,11 @@
-##############################################################
-# Tal Trakhtenberg
-# Mesima register login
-# 03.01.2024
-# Server
-##############################################################
 import os
 import traceback
 import socket
 import threading
 import database as database
+import messagedb as meesagedb
+import userdb as userdb
+import conversationsdb as conversationsdb
 from enum import IntEnum
 from rsa import RSAEncryption
 from aes import AESEncryption
@@ -20,10 +17,16 @@ clients = []
 class Server(object):
 
     def __init__(self, ip, port):
+        if not os.path.exists("db"):
+            os.makedirs("db")
+            os.makedirs("db/conversations")
+            os.makedirs("db/users")
+
         self.ip = ip
         self.port = port
         self.count_of_conns = 0
         self.db = database.Users()
+        self.allconversationsdb = conversationsdb.Conversations()
         self.clients = []
 
     def startServer(self):
@@ -203,6 +206,43 @@ class Server(object):
 
                 return
 
+            case ResponseCodes.CREATE_NEW_CONVERSATION_HEADER_CODE:
+                try:
+                    seperated_data = data.decode().split(Constants.SEPERATOR)
+                    if int(seperated_data[1]) == 1:  # if type = 1
+                        secondID = self.db.select_userdata_by_username(username=seperated_data[0], spdata="userId")
+                        firstID = client.userId
+                        conver_name = str(firstID)+str(secondID)
+                        converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name, contype=1)
+                        if converID is not None:
+                            client.userdb.add_conversation(converID)
+                            header = ResponseCodes.CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE
+                            msg = str(converID) + Constants.SEPERATOR + conver_name
+                            snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                            snd.start()
+
+                        else:
+                            header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
+                            msg = "already exists"
+                            snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                            snd.start()
+                        # TODO: find a way to get the conversaion id after creating it.
+                    else:
+                        header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
+                        msg = "something happened"
+                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                        snd.start()
+                except Exception as error:
+                    print(error)
+                    snd = threading.Thread(target=self.send_to_client,
+                                           args=(
+                                               ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE,
+                                               "Failed to create a new conversation",
+                                               conn, client))
+                    snd.start()
+
+
+
     def send_to_client(self, header, msg, conn, client):
         if client.encrypted_comms is True:
             while True:
@@ -260,6 +300,7 @@ class ClientConnData:
         self.addr = addr
         self.db = db
         self.userId = None
+        self.userdb = None
         self.userdata = {"nickname": None, "email": None, "phonenum": None, "username": None}
 
     def aes(self):
@@ -278,8 +319,14 @@ class ClientConnData:
         db_userdata = self.db.select_userdata_by_userId(self.userId, spdata)
         return db_userdata
 
+    def userdb(self):
+        if self.userId is not None:
+            return self.userdb
+        return None
+
     def set_user_using_ID(self, ID):
         self.userId = ID
+        self.userdb = userdb.User(self.userId)
         db_userdata = self.db.select_userdata_by_userId(ID, "all")
         self.userdata["nickname"] = db_userdata[1]
         self.userdata["email"] = db_userdata[2]
@@ -304,6 +351,10 @@ class ResponseCodes(IntEnum):
     AES_KEY_SUCCESS_HEADER_CODE = 41
     AES_KEY_FAIL_HEADER_CODE = 42
     NOTLOGGEDIN_HEADER_CODE = 5
+    CREATE_NEW_CONVERSATION_HEADER_CODE = 6
+    CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 61
+    CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 62
+    CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 621
 
 
 class Constants:
@@ -331,10 +382,7 @@ class ImageMessage:
     pass
 
 
-# TODO: Create message queue for sending to users, and classes for each type of message
 # TODO: Create response codes for sending messages, and asking to receive queued messeges.
-# TODO - done: Implement RSA & AES Encryption on user info and messages.
-# TODO: Create a secondary database to store temporary queued messages.
 # TODO: Display messages for successful registration and login.
 
 server = Server("127.0.0.1", Constants.PORT)

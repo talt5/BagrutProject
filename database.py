@@ -1,12 +1,7 @@
-##############################################################
-# Tal Trakhtenberg
-# Mesima register login
-# 03.01.2024
-# Database
-##############################################################
 import sqlite3
+import os
 
-DBNAME = "test.db"
+DBNAME = os.path.realpath("db/users/" + "test.db")
 
 
 class Users:
@@ -23,7 +18,7 @@ class Users:
         username
         password
     """
-
+    # TODO: Make a single select_userdata_by_something.
     def __init__(self, tablename="users", userId="userId", fullname="fullname", email="email", password="password",
                  username="username", phonenum="phonenum"):
         self.__tablename = tablename
@@ -90,6 +85,7 @@ class Users:
 
     def select_userdata_by_username(self, username, spdata):
         conn = sqlite3.connect(DBNAME)
+        print(spdata)
         print("Opened database successfully")
         if spdata == "all" or spdata is None:
             operation = "SELECT userId, fullname, email, phonenum, username, password  from " + self.__tablename + " where " + self.__username + "=" \

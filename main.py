@@ -47,7 +47,8 @@ class ServerComms:
                     packet = self.client.recv(Constants.PACKET_SIZE)
                     decrypted_packet = self.commsdata.aes.decrypt_data(packet, nonce)
                     decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode())
-                    decrypted_data = decrypted_packet[Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
+                    decrypted_data = decrypted_packet[
+                                     Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
                     print(decrypted_data)
                     self.handle_packet(decrypted_header, decrypted_data)
                 else:
@@ -71,9 +72,9 @@ class ServerComms:
                     if type(msg) is not bytes:
                         msg = msg.encode()
 
-                    encrypted_packet, nonce = self.commsdata.aes.encrypt_data(header+msg)
+                    encrypted_packet, nonce = self.commsdata.aes.encrypt_data(header + msg)
                     packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_packet
-                    print("sending: ".encode()+packet)
+                    print("sending: ".encode() + packet)
                     self.client.send(packet)
                     break
             else:
@@ -83,7 +84,7 @@ class ServerComms:
                         msg = msg.encode()
 
                     packet = header.encode() + msg
-                    print("sending: ".encode()+packet)
+                    print("sending: ".encode() + packet)
                     self.client.send(packet)
                     break
         except socket.error as e:
@@ -113,6 +114,12 @@ class ServerComms:
         password = self.password_hash(password)
         header = ResponseCodes.LOGIN_HEADER_CODE
         msg = str(username) + Constants.SEPERATOR + str(password)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def create_new_conversation_action(self, name, type):
+        header = ResponseCodes.CREATE_NEW_CONVERSATION_HEADER_CODE
+        msg = str(name) + Constants.SEPERATOR + str(type)
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -155,6 +162,10 @@ class ServerComms:
                 print("Encrypted communication enabled")
             case ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE:
                 print("failed to receive rsa key")
+            case ResponseCodes.CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE:
+                seperated_data = data.decode().split(Constants.SEPERATOR)
+                self.commsdata.update_selected_conversation(id=seperated_data[0], name=seperated_data[1])
+                app.frames["ChatPage"].update_selected_conversation()
 
     def send_aes_key(self):
         header = ResponseCodes.AES_KEY_HEADER_CODE
@@ -223,6 +234,10 @@ class ResponseCodes(IntEnum):
     AES_KEY_SUCCESS_HEADER_CODE = 41
     AES_KEY_FAIL_HEADER_CODE = 42
     NOTLOGGEDIN_HEADER_CODE = 5
+    CREATE_NEW_CONVERSATION_HEADER_CODE = 6
+    CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 61
+    CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 62
+    CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 621
 
 
 class App(tk.Tk):
@@ -313,13 +328,13 @@ class RegistrationPage(tk.Frame):
         phonenum_reg_entry = tk.Entry(self, width=60)
         phonenum_reg_entry.insert(0, "Phone number")
         submit_reg_button = tk.Button(self, text="Submit",
-                                      command=lambda: threading.Thread(controller.servercomms.register_action(
+                                      command=lambda: threading.Thread(self.controller.servercomms.register_action(
                                           full_name_reg_entry.get(),
                                           email_reg_entry.get(),
                                           phonenum_reg_entry.get(),
                                           username_reg_entry.get(),
                                           password_reg_entry.get())).start())
-        back_button = tk.Button(self, text="Back", command=lambda: controller.show_frame("StartPage"))
+        back_button = tk.Button(self, text="Back", command=lambda: self.controller.show_frame("StartPage"))
         full_name_reg_entry.pack()
         email_reg_entry.pack()
         phonenum_reg_entry.pack()
@@ -336,11 +351,23 @@ class ChatPage(tk.Frame):
     def __init__(self, parent, controller):
         tk.Frame.__init__(self, parent)
         self.controller = controller
+        self.username_label = tk.Label(self, text="Logged in as: ?", font=self.controller.title_font)
+        conversation_name_entry = tk.Entry(self, width=60)
+        conversation_create_button = tk.Button(self, text="Create new group", command=lambda:
+        threading.Thread(self.controller.servercomms.create_new_conversation_action(conversation_name_entry.get(), 1)))
+        self.selected_conversation_label = tk.Label(self, text="Selected group: ?", font=self.controller.title_font)
+        self.username_label.pack()
+        conversation_name_entry.pack()
+        conversation_create_button.pack()
+        self.selected_conversation_label.pack()
 
     def update_frame(self):
-        username_label = tk.Label(self, text=("Logged in as: " + self.controller.servercomms.commsdata.get_nickname()),
-                                  font=self.controller.title_font)
-        username_label.pack()
+        self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
+
+    def update_selected_conversation(self):
+        self.selected_conversation_label.configure(text="Selected group: " +
+                                                   self.controller.servercomms.commsdata.selected_conversation["name"])
+
 
 
 class ServerCommsData:
@@ -349,6 +376,7 @@ class ServerCommsData:
         self.userId = None
         self.username = None
         self.nickname = None
+        self.selected_conversation = {"ID": None, "name": None}
         self.aes = AESEncryption()
         self.rsa = RSAEncryption()
         self.encrypted_comms = False
@@ -378,6 +406,10 @@ class ServerCommsData:
     def set_nickname(self, nickname):
         self.nickname = nickname
 
+    def update_selected_conversation(self, id, name):
+        self.selected_conversation["ID"] = id
+        self.selected_conversation["name"] = name
+
 
 class Constants:
     PACKET_SIZE = 1024
@@ -391,3 +423,7 @@ class Constants:
 if __name__ == "__main__":
     app = App()
     app.mainloop()
+
+# TODO: Delete update_frame and instead make an unique def for each updating action.
+# TODO: Add character creation system.
+# TODO: Yassify the chat: adding hands to the sides of the main window with pink sparking nails. chaning the cursor to a yassified hand.
