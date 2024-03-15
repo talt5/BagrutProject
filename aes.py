@@ -7,7 +7,7 @@ class AESEncryption:
         self.key = None
 
     def generate_key(self):
-        # the key is bytes so we can send it using sockets
+        # the key is bytes, so we can send it using sockets
         # 32 bytes is size of key
         self.key = get_random_bytes(32)
 

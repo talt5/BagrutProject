@@ -11,7 +11,6 @@ class Conversation:
     """Message order is: 
         
     """
-    # TODO: Save all conversationIDs so we can actually use this.
     def __init__(self, conversationID):
         self.__msgtablename = "messages"
         self.__userId = "userId"
@@ -34,8 +33,8 @@ class Conversation:
                     " INTEGER PRIMARY KEY AUTOINCREMENT ,"
         query_str += " " + self.__messagesender + " INTEGER    NOT NULL ,"
         query_str += " " + self.__messagetype + " INTEGER    NOT NULL ,"
-        query_str += " " + self.__messagetext + " TEXT    NOT NULL ,"
-        query_str += " " + self.__messagecontentblob + " BLOB    NOT NULL ,"
+        query_str += " " + self.__messagetext + " TEXT ,"
+        query_str += " " + self.__messagecontentblob + " BLOB ,"
         query_str += " " + self.__messagetime + " TEXT    NOT NULL );"
 
         conn.execute(query_str)
@@ -49,7 +48,7 @@ class Conversation:
         conn.close()
 
 
-    def insert_message(self, sender: int, msgtype: int, text: str, data: bytes):
+    def insert_message(self, sender: int, msgtype: int, text: str = None, data: bytes = None):
         time = "123"  # TODO: Get current time
         conn = sqlite3.connect(self.DBNAME)
         # TODO: Check if sender is part of the conversation.
@@ -68,3 +67,13 @@ class Conversation:
         conn.commit()
         conn.close()
 
+    def check_if_user_is_participating(self, userID: int):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "SELECT 1 from " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(userID) + "'"
+        cursor = conn.execute(query)
+        if cursor.fetchone() is None:
+            conn.close()
+            return False
+        else:
+            conn.close()
+            return True

@@ -1,18 +1,12 @@
 import sqlite3
 import os
 
-
 class Conversations:
     """Creates database with users table includes:
        create query
        insert query
        select query
     """
-    """Message order is: 
-
-    """
-
-    # TODO: Make a folder for all conversation databases.
     def __init__(self):
         self.__tablename = "conversations"
         self.__conversationID = "conversationID"
@@ -54,9 +48,12 @@ class Conversations:
         conn.close()
 
     def get_conversationID_by_name(self, name):
+        # FIXME: Find and fix this weird ass bug which causes this def to always return "1"
         conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT 1 from " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + name + "'"
-        conversationid = conn.execute(query).fetchone()[0]
+        print(name)
+        query = "SELECT " + self.__conversationID + " FROM " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + name + "'"
+        cursor = conn.execute(query)
+        conversationid = cursor.fetchone()[0]
         conn.close()
         return conversationid
 

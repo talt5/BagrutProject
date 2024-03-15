@@ -13,7 +13,6 @@ import hashlib
 import os
 # import panda3d
 from enum import IntEnum
-from cryptography.fernet import Fernet
 from rsa import RSAEncryption
 from aes import AESEncryption
 
@@ -129,6 +128,13 @@ class ServerComms:
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
+    # TODO: Support avatar poses and files.
+    def send_message(self, converID, text):
+        header = ResponseCodes.CLIENT_SENDING_MESSAGE_HEADER_CODE
+        msg = converID + Constants.SEPERATOR + text
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
     def handle_packet(self, header, data):
         match header:
             case ResponseCodes.REGIST_SUCCESS_HEADER_CODE:
@@ -166,6 +172,12 @@ class ServerComms:
                 seperated_data = data.decode().split(Constants.SEPERATOR)
                 self.commsdata.update_selected_conversation(id=seperated_data[0], name=seperated_data[1])
                 app.frames["ChatPage"].update_selected_conversation()
+            case ResponseCodes.CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE:
+                print("amazing")
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], senderID=sep_data[1], nickname=sep_data[2], text=sep_data[3])
+            case ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE:
+                print("not amazing")
 
     def send_aes_key(self):
         header = ResponseCodes.AES_KEY_HEADER_CODE
@@ -238,6 +250,9 @@ class ResponseCodes(IntEnum):
     CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 61
     CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 62
     CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 621
+    CLIENT_SENDING_MESSAGE_HEADER_CODE = 7
+    CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 71
+    CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 72
 
 
 class App(tk.Tk):
@@ -348,9 +363,13 @@ class RegistrationPage(tk.Frame):
 
 
 class ChatPage(tk.Frame):
+    # TODO: Make an working system of displaying chats
     def __init__(self, parent, controller):
         tk.Frame.__init__(self, parent)
         self.controller = controller
+        self.main_chat_container = tk.Frame(self)
+        self.chat_containers = {}
+
         self.username_label = tk.Label(self, text="Logged in as: ?", font=self.controller.title_font)
         conversation_name_entry = tk.Entry(self, width=60)
         conversation_create_button = tk.Button(self, text="Create new group", command=lambda:
@@ -361,18 +380,64 @@ class ChatPage(tk.Frame):
         conversation_create_button.pack()
         self.selected_conversation_label.pack()
 
+        self.main_chat_container.pack(side="top", fill="both", expand=True)
+        self.main_chat_container.grid_rowconfigure(0, weight=1)
+        self.main_chat_container.grid_columnconfigure(0, weight=1)
+
     def update_frame(self):
         self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
 
     def update_selected_conversation(self):
         self.selected_conversation_label.configure(text="Selected group: " +
-                                                   self.controller.servercomms.commsdata.selected_conversation["name"])
+                                                        self.controller.servercomms.commsdata.selected_conversation[
+                                                            "name"])
+        if not self.controller.servercomms.commsdata.selected_conversation["ID"] in self.chat_containers:
+            self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]] = ChatContainer(
+                parent=self.main_chat_container, controller=self.controller,
+                converID=self.controller.servercomms.commsdata.selected_conversation["ID"])
+            self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].grid(row=0,
+                                                                                                         column=0,
+                                                                                                         sticky="nsew")
+        self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].tkraise()
 
+    def add_message_to_chat(self, converID, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
+        self.chat_containers[converID].add_message(senderID=senderID, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
+
+
+class ChatContainer(tk.Frame):
+    def __init__(self, parent, controller, converID):
+        tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
+        self.controller = controller
+        self.converID = converID
+        self.messages_frame = tk.Frame(self)
+        self.message_entry = tk.Entry(self)
+        self.message_send_button = tk.Button(self, text="Send",
+                                             command=lambda: self.controller.servercomms.send_message(
+                                                 converID=self.converID, text=self.message_entry.get()))
+        self.messages_frame.pack()
+        self.message_entry.pack()
+        self.message_send_button.pack()
+
+    def add_message(self, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
+        if senderID == self.controller.servercomms.commsdata.userId:
+            pass # TODO: Position message differently if the user sent it
+        MessageContainer(parent=self.messages_frame, controller=self.controller, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data).pack()
+
+
+class MessageContainer(tk.Frame):
+    # TODO: Create different message layouts according to message type.
+    def __init__(self, parent, controller, nickname="test", avatar=None, text=None, ctime=None, data=None):
+        tk.Frame.__init__(self, parent, highlightbackground="blue", highlightthickness=2)
+        self.controller = controller
+        self.msg_sender = tk.Label(self, text=nickname + ":")
+        self.msg_text = tk.Label(self, text=text)
+        self.msg_sender.pack()
+        self.msg_text.pack()
 
 
 class ServerCommsData:
     def __init__(self):
-        self.salt = None
+        # self.salt = None
         self.userId = None
         self.username = None
         self.nickname = None

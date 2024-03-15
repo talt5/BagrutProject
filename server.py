@@ -3,6 +3,7 @@ import traceback
 import socket
 import threading
 import database as database
+import messagedb
 import messagedb as meesagedb
 import userdb as userdb
 import conversationsdb as conversationsdb
@@ -10,16 +11,17 @@ from enum import IntEnum
 from rsa import RSAEncryption
 from aes import AESEncryption
 
-
-clients = []
-
-
+# TODO: When a conversation receives a message, send it to all users.
 class Server(object):
 
     def __init__(self, ip, port):
         if not os.path.exists("db"):
             os.makedirs("db")
             os.makedirs("db/conversations")
+            os.makedirs("db/users")
+        elif not os.path.exists("db/conversations"):
+            os.makedirs("db/conversations")
+        elif not os.path.exists("db/users"):
             os.makedirs("db/users")
 
         self.ip = ip
@@ -216,6 +218,9 @@ class Server(object):
                         converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name, contype=1)
                         if converID is not None:
                             client.userdb.add_conversation(converID)
+                            mdb = messagedb.Conversation(converID)
+                            mdb.insert_participant(userID=firstID, isadmin=1)
+                            mdb.insert_participant(userID=secondID, isadmin=1)
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE
                             msg = str(converID) + Constants.SEPERATOR + conver_name
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
@@ -240,6 +245,32 @@ class Server(object):
                                                "Failed to create a new conversation",
                                                conn, client))
                     snd.start()
+
+            case ResponseCodes.CLIENT_SENDING_MESSAGE_HEADER_CODE:
+                try:
+                    seperated_data = data.decode().split(Constants.SEPERATOR)
+                    mdb = messagedb.Conversation(conversationID=seperated_data[0])
+                    if mdb.check_if_user_is_participating(client.userId):
+                        mdb.insert_message(sender=client.userId, msgtype=1, text=seperated_data[1])
+                        client_nickname = client.get_userdata("fullname")
+                        header = ResponseCodes.CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE
+                        msg = str(seperated_data[0]) + Constants.SEPERATOR + str(client.userId) + Constants.SEPERATOR + client_nickname + Constants.SEPERATOR + seperated_data[1]
+                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                        snd.start()
+                    else:
+                        header = ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE
+                        msg = "User not participating in this chat!"
+                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                        snd.start()
+
+                except Exception as error:
+                    print(error)
+                    header = ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE
+                    msg = "User not participating in this chat!"
+                    snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                    snd.start()
+
+
 
 
 
@@ -355,6 +386,9 @@ class ResponseCodes(IntEnum):
     CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 61
     CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 62
     CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 621
+    CLIENT_SENDING_MESSAGE_HEADER_CODE = 7
+    CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 71
+    CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 72
 
 
 class Constants:
@@ -372,15 +406,6 @@ def represents_int(data):
         return False
     else:
         return True
-
-
-class TextMessage:
-    pass
-
-
-class ImageMessage:
-    pass
-
 
 # TODO: Create response codes for sending messages, and asking to receive queued messeges.
 # TODO: Display messages for successful registration and login.
