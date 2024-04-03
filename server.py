@@ -2,6 +2,7 @@ import os
 import traceback
 import socket
 import threading
+import time
 import database as database
 import messagedb
 import messagedb as meesagedb
@@ -10,6 +11,7 @@ import conversationsdb as conversationsdb
 from enum import IntEnum
 from rsa import RSAEncryption
 from aes import AESEncryption
+
 
 # TODO: When a conversation receives a message, send it to all users.
 class Server(object):
@@ -28,8 +30,10 @@ class Server(object):
         self.port = port
         self.count_of_conns = 0
         self.db = database.Users()
+        self.lock = threading.Lock()
         self.allconversationsdb = conversationsdb.Conversations()
-        self.clients = []
+        self.clients = []  # Make it a dictionary for efficiency
+        self.logged_in_clients = {}
 
     def startServer(self):
         try:
@@ -64,9 +68,11 @@ class Server(object):
                     nonce = conn.recv(nonce_len)
                     packet = conn.recv(Constants.PACKET_SIZE)
                     decrypted_packet = client.aes.decrypt_data(packet, nonce)
-                    decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode()) # for now until a proper header protocol is made
-                    decrypted_data = decrypted_packet[Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
-                    print(decrypted_data)
+                    decrypted_header = int(decrypted_packet[
+                                           :Constants.HEADER_LENGTH].decode())  # for now until a proper header protocol is made
+                    decrypted_data = decrypted_packet[
+                                     Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
+                    print("received: ".encode() + decrypted_data)
                     print(decrypted_header)
                     print(decrypted_data)
                     self.handle_packet(decrypted_header, decrypted_data, conn, addr, client)
@@ -81,6 +87,8 @@ class Server(object):
 
         conn.close()
         self.clients.remove(client)
+        if client.userId in self.logged_in_clients:
+            self.logged_in_clients.pop(client.userId)
         self.count_of_conns -= 1
         print("removed client")
         print(self.clients)
@@ -109,7 +117,10 @@ class Server(object):
                         print("Inserted User Successfuly!")
 
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.REGIST_SUCCESS_HEADER_CODE, "registered beautifully", conn, client))
+                                               args=(
+                                                   ResponseCodes.REGIST_SUCCESS_HEADER_CODE, "registered beautifully",
+                                                   conn,
+                                                   client))
                         snd.start()
 
                     else:
@@ -132,7 +143,7 @@ class Server(object):
                     print("logging in")
                     data_as_list = data.decode().split(Constants.SEPERATOR)
                     clientusername, clientpassword = data_as_list[0], data_as_list[1]
-                    print(clientusername,clientpassword)
+                    print(clientusername, clientpassword)
 
                     if self.check_if_in_blacklist_login(clientusername, clientpassword) != 0:
                         snd = threading.Thread(target=self.send_to_client,
@@ -146,16 +157,21 @@ class Server(object):
                     serverpassword = self.db.select_userdata_by_username(clientusername, "password")
 
                     if serverpassword == clientpassword:
-                        client.set_user_using_ID(self.db.select_userdata_by_username(clientusername, "userId"))
+                        userId = self.db.select_userdata_by_username(clientusername, "userId")
+                        client.set_user_using_ID(userId)
                         data_response = (str(client.get_userdata("userId")) + Constants.SEPERATOR + client.get_userdata(
                             "fullname") + Constants.SEPERATOR + client.get_userdata("username"))
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn, client))
+                                               args=(
+                                                   ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn,
+                                                   client))
                         snd.start()
-
+                        self.send_to_user_all_his_convers(client)
+                        self.logged_in_clients[userId] = client
                     else:
                         snd = threading.Thread(target=self.send_to_client,
-                                               args=(ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn, client))
+                                               args=(
+                                                   ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn, client))
                         snd.start()
 
                 except Exception as error:
@@ -172,7 +188,9 @@ class Server(object):
                     decrypted_key = client.rsa.decrypt(data)
                     client.aes.set_key(decrypted_key)
                     snd = threading.Thread(target=self.send_to_client,
-                                           args=(ResponseCodes.AES_KEY_SUCCESS_HEADER_CODE, "Received AES key", conn, client))
+                                           args=(
+                                               ResponseCodes.AES_KEY_SUCCESS_HEADER_CODE, "Received AES key", conn,
+                                               client))
                     snd.start()
                     client.encrypted_comms = True
                     print("Encrypted communication enabled")
@@ -202,7 +220,8 @@ class Server(object):
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
                                            args=(
-                                               ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE, "Failed to receive RSA public key",
+                                               ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE,
+                                               "Failed to receive RSA public key",
                                                conn, client))
                     snd.start()
 
@@ -214,8 +233,9 @@ class Server(object):
                     if int(seperated_data[1]) == 1:  # if type = 1
                         secondID = self.db.select_userdata_by_username(username=seperated_data[0], spdata="userId")
                         firstID = client.userId
-                        conver_name = str(firstID)+str(secondID)
-                        converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name, contype=1)
+                        conver_name = str(firstID) + str(secondID)
+                        converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name,
+                                                                                                contype=1)
                         if converID is not None:
                             client.userdb.add_conversation(converID)
                             mdb = messagedb.Conversation(converID)
@@ -251,11 +271,8 @@ class Server(object):
                     seperated_data = data.decode().split(Constants.SEPERATOR)
                     mdb = messagedb.Conversation(conversationID=seperated_data[0])
                     if mdb.check_if_user_is_participating(client.userId):
-                        mdb.insert_message(sender=client.userId, msgtype=1, text=seperated_data[1])
-                        client_nickname = client.get_userdata("fullname")
-                        header = ResponseCodes.CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE
-                        msg = str(seperated_data[0]) + Constants.SEPERATOR + str(client.userId) + Constants.SEPERATOR + client_nickname + Constants.SEPERATOR + seperated_data[1]
-                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                        msgID = mdb.insert_message(sender=client.userId, msgtype=1, text=seperated_data[1])
+                        snd = threading.Thread(self.send_message_to_all_online_conver_participants(converID=seperated_data[0], messageID=msgID))
                         snd.start()
                     else:
                         header = ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE
@@ -270,20 +287,84 @@ class Server(object):
                     snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                     snd.start()
 
+            case ResponseCodes.SELECT_CONVERSATION_HEADER_CODE:
+                try:
+                    data = data.decode()
+                    mdb = messagedb.Conversation(conversationID=data)
+                    if mdb.check_if_user_is_participating(client.userId):
+                        header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
+                        msg = data
+                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                        snd.start()
+                    else:
+                        header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
+                        msg = "User not participating in this chat!"
+                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                        snd.start()
 
+                except Exception as error:
+                    print(error)
+                    header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
+                    msg = "error while selecting conversation"
+                    snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                    snd.start()
+    def send_to_user_all_his_convers(self, client):
+        try:
+            user_conversations = client.userdb.get_all_convers()
+            print(user_conversations)
+            header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
+            for converID in user_conversations:
+                converID = converID[0]
+                msg = str(converID)
+                snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
+                snd.start()
+                time.sleep(0.1) # FIXME: WHY THE FUCK DOES THIS FIX THIS PROBLEM
+        except Exception as error:
+            print(error)
 
+    def send_message_to_all_online_conver_participants(self, converID, messageID):
+        try:
+            mdb = messagedb.Conversation(conversationID=converID)
+            participants = mdb.get_all_participant_ids()
+            for userID in participants:
+                userID = userID[0]
+                print(userID)
+                if userID in self.logged_in_clients:
+                    print("sending to " + str(userID))
+                    self.send_message_to_client(converID=converID, messageID=messageID, client=self.logged_in_clients[userID])
+        except Exception as error:
+            print(error)
 
+    def send_message_to_client(self, converID, messageID, client):
+        try:
+            mdb = messagedb.Conversation(conversationID=converID)
+            message = mdb.get_message(messageID=messageID)
+            header = ResponseCodes.SERVER_SENDING_MESSAGE
+            if message[2] == 1:  # Message type 1: only text
+                msg = str(converID) + Constants.SEPERATOR + str(message[0]) + Constants.SEPERATOR + str(message[1]) + Constants.SEPERATOR + str(
+                    message[2]) + Constants.SEPERATOR + str(
+                    message[3]) + Constants.SEPERATOR + Constants.SEPERATOR + str(message[5])
+            else:
+                msg = bytes(message[0]) + Constants.SEPERATOR.encode() + bytes(
+                    message[1]) + Constants.SEPERATOR.encode() + bytes(message[
+                                                                           2]) + Constants.SEPERATOR.encode() + message[
+                          3].encode() + Constants.SEPERATOR.encode() + message[4] + Constants.SEPERATOR.encode() + \
+                      bytes(message[5])
+            snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
+            snd.start()
+        except Exception as error:
+            print(error)
 
     def send_to_client(self, header, msg, conn, client):
+        self.lock.acquire()
         if client.encrypted_comms is True:
             while True:
                 header = str(header).zfill(Constants.HEADER_LENGTH).encode()
                 if type(msg) is not bytes:
                     msg = msg.encode()
-
-                encrypted_data, nonce = client.aes.encrypt_data(header+msg)
+                print("sending:".encode() + header + msg)
+                encrypted_data, nonce = client.aes.encrypt_data(header + msg)
                 packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_data
-                print(packet)
                 conn.send(packet)
                 print("done sending")
                 break
@@ -298,6 +379,7 @@ class Server(object):
                 conn.send(packet)
                 print("done sending")
                 break
+        self.lock.release()
 
     def check_if_in_blacklist_reg(self, fullname, email, phonenum, username, password):
         blacklist = (Constants.SEPERATOR)
@@ -389,6 +471,10 @@ class ResponseCodes(IntEnum):
     CLIENT_SENDING_MESSAGE_HEADER_CODE = 7
     CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 71
     CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 72
+    SERVER_SENDING_MESSAGE = 8
+    SELECT_CONVERSATION_HEADER_CODE = 9
+    SELECT_CONVERSATION_SUCCESS_HEADER_CODE = 91
+    SELECT_CONVERSATION_FAIL_HEADER_CODE = 92
 
 
 class Constants:
@@ -407,8 +493,10 @@ def represents_int(data):
     else:
         return True
 
+
 # TODO: Create response codes for sending messages, and asking to receive queued messeges.
 # TODO: Display messages for successful registration and login.
+# TODO: Change the packet sending protocol in order of it to actually work as intended.
 
 server = Server("127.0.0.1", Constants.PORT)
 server.startServer()

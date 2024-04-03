@@ -49,3 +49,9 @@ class User:
         else:
             conn.close()
             return True
+
+    def get_all_convers(self):
+        conn = sqlite3.connect(self.DBNAME)
+        query = query = "SELECT " + self.__CONVERSATIONID + " FROM " + self.__CONVERSATION_PARTICIPANT_TABLE
+        cursor = conn.execute(query)
+        return cursor.fetchall()

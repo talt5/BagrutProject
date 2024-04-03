@@ -48,7 +48,9 @@ class ServerComms:
                     decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode())
                     decrypted_data = decrypted_packet[
                                      Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
-                    print(decrypted_data)
+                    print(nonce_len)
+                    print(nonce)
+                    print(decrypted_packet)
                     self.handle_packet(decrypted_header, decrypted_data)
                 else:
                     packet_header = int(self.client.recv(Constants.HEADER_LENGTH).decode())
@@ -70,10 +72,9 @@ class ServerComms:
                     header = str(header).zfill(Constants.HEADER_LENGTH).encode()
                     if type(msg) is not bytes:
                         msg = msg.encode()
-
+                    print("sending: ".encode() + header + msg)
                     encrypted_packet, nonce = self.commsdata.aes.encrypt_data(header + msg)
                     packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_packet
-                    print("sending: ".encode() + packet)
                     self.client.send(packet)
                     break
             else:
@@ -119,6 +120,12 @@ class ServerComms:
     def create_new_conversation_action(self, name, type):
         header = ResponseCodes.CREATE_NEW_CONVERSATION_HEADER_CODE
         msg = str(name) + Constants.SEPERATOR + str(type)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def select_conversation_from_server_action(self, conversationID):
+        header = ResponseCodes.SELECT_CONVERSATION_HEADER_CODE
+        msg = conversationID
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -178,12 +185,22 @@ class ServerComms:
                 app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], senderID=sep_data[1], nickname=sep_data[2], text=sep_data[3])
             case ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE:
                 print("not amazing")
+            case ResponseCodes.SERVER_SENDING_MESSAGE:
+                print("amazing")
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], senderID=sep_data[2], nickname=sep_data[2],
+                                                   text=sep_data[4])
+            case ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE:
+                converID = data.decode()
+                print("conversation " + converID + "selected successfuly")
+                self.commsdata.update_selected_conversation(id=converID, name=converID)
+                app.frames["ChatPage"].update_selected_conversation()
+
 
     def send_aes_key(self):
         header = ResponseCodes.AES_KEY_HEADER_CODE
         key = self.commsdata.aes.get_key()
         msg = self.commsdata.rsa.encrypt(key)
-
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -253,6 +270,10 @@ class ResponseCodes(IntEnum):
     CLIENT_SENDING_MESSAGE_HEADER_CODE = 7
     CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 71
     CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 72
+    SERVER_SENDING_MESSAGE = 8
+    SELECT_CONVERSATION_HEADER_CODE = 9
+    SELECT_CONVERSATION_SUCCESS_HEADER_CODE = 91
+    SELECT_CONVERSATION_FAIL_HEADER_CODE = 92
 
 
 class App(tk.Tk):
@@ -374,10 +395,12 @@ class ChatPage(tk.Frame):
         conversation_name_entry = tk.Entry(self, width=60)
         conversation_create_button = tk.Button(self, text="Create new group", command=lambda:
         threading.Thread(self.controller.servercomms.create_new_conversation_action(conversation_name_entry.get(), 1)))
+        conversation_select_button = tk.Button(self, text="Select group", command=lambda: threading.Thread(self.controller.servercomms.select_conversation_from_server_action(conversation_name_entry.get())))
         self.selected_conversation_label = tk.Label(self, text="Selected group: ?", font=self.controller.title_font)
         self.username_label.pack()
         conversation_name_entry.pack()
         conversation_create_button.pack()
+        conversation_select_button.pack()
         self.selected_conversation_label.pack()
 
         self.main_chat_container.pack(side="top", fill="both", expand=True)
@@ -400,7 +423,7 @@ class ChatPage(tk.Frame):
                                                                                                          sticky="nsew")
         self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].tkraise()
 
-    def add_message_to_chat(self, converID, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
+    def add_message_to_chat(self, converID, senderID, nickname=None, avatar=None, text=None, ctime=None, data=None):
         self.chat_containers[converID].add_message(senderID=senderID, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
 
 
