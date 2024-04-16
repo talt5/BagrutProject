@@ -75,6 +75,7 @@ class Conversation:
 
     def check_if_user_is_participating(self, userID: int):
         conn = sqlite3.connect(self.DBNAME)
+        print("checking userid: " + str(userID))
         query = "SELECT 1 from " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(userID) + "'"
         cursor = conn.execute(query)
         if cursor.fetchone() is None:
@@ -97,3 +98,9 @@ class Conversation:
         query = "SELECT " + self.__userId + " FROM " + self.__prtctablename
         cursor = conn.execute(query)
         return cursor.fetchall()
+
+    def get_last_message_id(self):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "SELECT " + self.__messageID + " FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = (SELECT MAX(" + self.__messageID + ") FROM " + self.__msgtablename + ");"
+        cursor = conn.execute(query)
+        return cursor.fetchone()[0]

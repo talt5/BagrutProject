@@ -43,14 +43,21 @@ class ServerComms:
                 if self.commsdata.encrypted_comms is True:
                     nonce_len = int(self.client.recv(2).decode())
                     nonce = self.client.recv(nonce_len)
-                    packet = self.client.recv(Constants.PACKET_SIZE)
+                    packet_len = int(self.client.recv(4).decode())
+                    packet = self.client.recv(packet_len)
                     decrypted_packet = self.commsdata.aes.decrypt_data(packet, nonce)
                     decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode())
                     decrypted_data = decrypted_packet[
                                      Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
-                    print(nonce_len)
-                    print(nonce)
-                    print(decrypted_packet)
+                    print("received", nonce_len)
+                    print("received", nonce)
+                    print("received", decrypted_packet)
+                    try:
+                        print(decrypted_packet.decode())
+                    except Exception as error:
+                        print(traceback.format_exc())
+                        connected = False
+                        print(error)
                     self.handle_packet(decrypted_header, decrypted_data)
                 else:
                     packet_header = int(self.client.recv(Constants.HEADER_LENGTH).decode())
@@ -139,6 +146,12 @@ class ServerComms:
     def send_message(self, converID, text):
         header = ResponseCodes.CLIENT_SENDING_MESSAGE_HEADER_CODE
         msg = converID + Constants.SEPERATOR + text
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def ask_for_old_msgs_action(self, converID, from_msg_id):
+        header = ResponseCodes.GET_MESSAGES_HEADER_CODE
+        msg = str(converID) + Constants.SEPERATOR + str(from_msg_id)
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -247,33 +260,36 @@ def represents_int(data):
 class ResponseCodes(IntEnum):
     PACKET_SIZE = 1024
     HEADER_LENGTH = 64
-    REGIST_HEADER_CODE = 1
-    REGIST_SUCCESS_HEADER_CODE = 11
-    REGIST_FAIL_HEADER_CODE = 12
-    REGIST_FAIL_USREXIST_HEADER_CODE = 121
-    REGIST_FAIL_INBLACK_HEADER_CODE = 122
-    LOGIN_HEADER_CODE = 2
-    LOGIN_SUCCESS_HEADER_CODE = 21
-    LOGIN_FAIL_HEADER_CODE = 22
-    LOGIN_FAIL_INBLACK_HEADER_CODE = 221
-    ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE = 3
-    ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE = 31
-    ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE = 32
-    AES_KEY_HEADER_CODE = 4
-    AES_KEY_SUCCESS_HEADER_CODE = 41
-    AES_KEY_FAIL_HEADER_CODE = 42
-    NOTLOGGEDIN_HEADER_CODE = 5
-    CREATE_NEW_CONVERSATION_HEADER_CODE = 6
-    CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 61
-    CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 62
-    CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 621
-    CLIENT_SENDING_MESSAGE_HEADER_CODE = 7
-    CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 71
-    CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 72
-    SERVER_SENDING_MESSAGE = 8
-    SELECT_CONVERSATION_HEADER_CODE = 9
-    SELECT_CONVERSATION_SUCCESS_HEADER_CODE = 91
-    SELECT_CONVERSATION_FAIL_HEADER_CODE = 92
+    REGIST_HEADER_CODE = 110
+    REGIST_SUCCESS_HEADER_CODE = 111
+    REGIST_FAIL_HEADER_CODE = 112
+    REGIST_FAIL_USREXIST_HEADER_CODE = 1121
+    REGIST_FAIL_INBLACK_HEADER_CODE = 1122
+    LOGIN_HEADER_CODE = 120
+    LOGIN_SUCCESS_HEADER_CODE = 121
+    LOGIN_FAIL_HEADER_CODE = 122
+    LOGIN_FAIL_INBLACK_HEADER_CODE = 1221
+    ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE = 130
+    ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE = 131
+    ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE = 132
+    AES_KEY_HEADER_CODE = 140
+    AES_KEY_SUCCESS_HEADER_CODE = 141
+    AES_KEY_FAIL_HEADER_CODE = 142
+    NOTLOGGEDIN_HEADER_CODE = 150
+    CREATE_NEW_CONVERSATION_HEADER_CODE = 160
+    CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 161
+    CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 162
+    CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 1621
+    CLIENT_SENDING_MESSAGE_HEADER_CODE = 170
+    CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 171
+    CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 172
+    SERVER_SENDING_MESSAGE = 180
+    SELECT_CONVERSATION_HEADER_CODE = 190
+    SELECT_CONVERSATION_SUCCESS_HEADER_CODE = 191
+    SELECT_CONVERSATION_FAIL_HEADER_CODE = 192
+    GET_MESSAGES_HEADER_CODE = 200
+    GET_MESSAGES_SUCCESS_HEADER_CODE = 201
+    GET_MESSAGES_FAIL_HEADER_CODE = 202
 
 
 class App(tk.Tk):
@@ -397,11 +413,15 @@ class ChatPage(tk.Frame):
         threading.Thread(self.controller.servercomms.create_new_conversation_action(conversation_name_entry.get(), 1)))
         conversation_select_button = tk.Button(self, text="Select group", command=lambda: threading.Thread(self.controller.servercomms.select_conversation_from_server_action(conversation_name_entry.get())))
         self.selected_conversation_label = tk.Label(self, text="Selected group: ?", font=self.controller.title_font)
+        get_more_messages_button = tk.Button(self, text="Get New Messages", command=lambda: threading.Thread(
+            self.controller.servercomms.ask_for_old_msgs_action(
+                converID=self.controller.servercomms.commsdata.selected_conversation["ID"], from_msg_id=0))) # TODO: Make this automatic
         self.username_label.pack()
         conversation_name_entry.pack()
         conversation_create_button.pack()
         conversation_select_button.pack()
         self.selected_conversation_label.pack()
+        get_more_messages_button.pack()
 
         self.main_chat_container.pack(side="top", fill="both", expand=True)
         self.main_chat_container.grid_rowconfigure(0, weight=1)
@@ -409,6 +429,10 @@ class ChatPage(tk.Frame):
 
     def update_frame(self):
         self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
+
+    def ask_for_messages(self):
+        converID = self.controller.servercomms.commsdata.selected_conversation["ID"]
+        from_msg_id = self.chat_containers[converID]
 
     def update_selected_conversation(self):
         self.selected_conversation_label.configure(text="Selected group: " +
@@ -440,12 +464,16 @@ class ChatContainer(tk.Frame):
         self.messages_frame.pack()
         self.message_entry.pack()
         self.message_send_button.pack()
+        self.scrollbar = tk.Scrollbar(self.messages_frame)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     def add_message(self, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
         if senderID == self.controller.servercomms.commsdata.userId:
             pass # TODO: Position message differently if the user sent it
         MessageContainer(parent=self.messages_frame, controller=self.controller, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data).pack()
 
+    def get_oldest_msg_id(self): # TODO: Make the server also send the messageID
+        pass
 
 class MessageContainer(tk.Frame):
     # TODO: Create different message layouts according to message type.
@@ -515,3 +543,4 @@ if __name__ == "__main__":
 # TODO: Delete update_frame and instead make an unique def for each updating action.
 # TODO: Add character creation system.
 # TODO: Yassify the chat: adding hands to the sides of the main window with pink sparking nails. chaning the cursor to a yassified hand.
+# TODO: Send to server with packet_len

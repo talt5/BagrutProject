@@ -286,10 +286,10 @@ class Server(object):
                     msg = "User not participating in this chat!"
                     snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                     snd.start()
-
             case ResponseCodes.SELECT_CONVERSATION_HEADER_CODE:
                 try:
                     data = data.decode()
+                    # TODO: Check if conversation exists.
                     mdb = messagedb.Conversation(conversationID=data)
                     if mdb.check_if_user_is_participating(client.userId):
                         header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
@@ -308,19 +308,44 @@ class Server(object):
                     msg = "error while selecting conversation"
                     snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                     snd.start()
+
+            case ResponseCodes.GET_MESSAGES_HEADER_CODE:
+                try:
+                    sep_data = data.decode().split(Constants.SEPERATOR)
+                    self.send_to_user_older_messages(converID=sep_data[0], from_msg_id=sep_data[1], client=client)
+                except Exception as error:
+                    print(error)
+
     def send_to_user_all_his_convers(self, client):
         try:
             user_conversations = client.userdb.get_all_convers()
-            print(user_conversations)
             header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
             for converID in user_conversations:
                 converID = converID[0]
                 msg = str(converID)
                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
                 snd.start()
-                time.sleep(0.1) # FIXME: WHY THE FUCK DOES THIS FIX THIS PROBLEM
         except Exception as error:
             print(error)
+
+    def send_to_user_older_messages(self, converID, from_msg_id, client):
+        try:
+            from_msg_id = int(from_msg_id)
+            mdb = messagedb.Conversation(conversationID=converID)
+            if from_msg_id != 0:
+                for i in range(15):
+                    self.send_message_to_client(converID=converID, messageID=(from_msg_id - i), client=client)
+            else:
+                from_msg_id = mdb.get_last_message_id()
+                if from_msg_id < 15:
+                    for i in range(from_msg_id):
+                        self.send_message_to_client(converID=converID, messageID=(from_msg_id - i), client=client)
+                else:
+                    for i in range(15):
+                        self.send_message_to_client(converID=converID, messageID=(from_msg_id - i), client=client)
+        except Exception as error:
+            print(error)
+
 
     def send_message_to_all_online_conver_participants(self, converID, messageID):
         try:
@@ -339,6 +364,7 @@ class Server(object):
         try:
             mdb = messagedb.Conversation(conversationID=converID)
             message = mdb.get_message(messageID=messageID)
+            print(message)
             header = ResponseCodes.SERVER_SENDING_MESSAGE
             if message[2] == 1:  # Message type 1: only text
                 msg = str(converID) + Constants.SEPERATOR + str(message[0]) + Constants.SEPERATOR + str(message[1]) + Constants.SEPERATOR + str(
@@ -356,7 +382,6 @@ class Server(object):
             print(error)
 
     def send_to_client(self, header, msg, conn, client):
-        self.lock.acquire()
         if client.encrypted_comms is True:
             while True:
                 header = str(header).zfill(Constants.HEADER_LENGTH).encode()
@@ -364,7 +389,8 @@ class Server(object):
                     msg = msg.encode()
                 print("sending:".encode() + header + msg)
                 encrypted_data, nonce = client.aes.encrypt_data(header + msg)
-                packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_data
+                packet_len = str(len(encrypted_data)).zfill(4).encode()
+                packet = str(len(nonce)).zfill(2).encode() + nonce + packet_len + encrypted_data
                 conn.send(packet)
                 print("done sending")
                 break
@@ -379,7 +405,6 @@ class Server(object):
                 conn.send(packet)
                 print("done sending")
                 break
-        self.lock.release()
 
     def check_if_in_blacklist_reg(self, fullname, email, phonenum, username, password):
         blacklist = (Constants.SEPERATOR)
@@ -448,33 +473,36 @@ class ClientConnData:
 
 
 class ResponseCodes(IntEnum):
-    REGIST_HEADER_CODE = 1
-    REGIST_SUCCESS_HEADER_CODE = 11
-    REGIST_FAIL_HEADER_CODE = 12
-    REGIST_FAIL_USREXIST_HEADER_CODE = 121
-    REGIST_FAIL_INBLACK_HEADER_CODE = 122
-    LOGIN_HEADER_CODE = 2
-    LOGIN_SUCCESS_HEADER_CODE = 21
-    LOGIN_FAIL_HEADER_CODE = 22
-    LOGIN_FAIL_INBLACK_HEADER_CODE = 221
-    ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE = 3
-    ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE = 31
-    ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE = 32
-    AES_KEY_HEADER_CODE = 4
-    AES_KEY_SUCCESS_HEADER_CODE = 41
-    AES_KEY_FAIL_HEADER_CODE = 42
-    NOTLOGGEDIN_HEADER_CODE = 5
-    CREATE_NEW_CONVERSATION_HEADER_CODE = 6
-    CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 61
-    CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 62
-    CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 621
-    CLIENT_SENDING_MESSAGE_HEADER_CODE = 7
-    CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 71
-    CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 72
-    SERVER_SENDING_MESSAGE = 8
-    SELECT_CONVERSATION_HEADER_CODE = 9
-    SELECT_CONVERSATION_SUCCESS_HEADER_CODE = 91
-    SELECT_CONVERSATION_FAIL_HEADER_CODE = 92
+    REGIST_HEADER_CODE = 110
+    REGIST_SUCCESS_HEADER_CODE = 111
+    REGIST_FAIL_HEADER_CODE = 112
+    REGIST_FAIL_USREXIST_HEADER_CODE = 1121
+    REGIST_FAIL_INBLACK_HEADER_CODE = 1122
+    LOGIN_HEADER_CODE = 120
+    LOGIN_SUCCESS_HEADER_CODE = 121
+    LOGIN_FAIL_HEADER_CODE = 122
+    LOGIN_FAIL_INBLACK_HEADER_CODE = 1221
+    ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE = 130
+    ASK_FOR_RSA_PUBLIC_KEY_SUCCESS_HEADER_CODE = 131
+    ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE = 132
+    AES_KEY_HEADER_CODE = 140
+    AES_KEY_SUCCESS_HEADER_CODE = 141
+    AES_KEY_FAIL_HEADER_CODE = 142
+    NOTLOGGEDIN_HEADER_CODE = 150
+    CREATE_NEW_CONVERSATION_HEADER_CODE = 160
+    CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE = 161
+    CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE = 162
+    CREATE_NEW_CONVERSATION_FAIL_ALREADY_EXISTS_HEADER_CODE = 1621
+    CLIENT_SENDING_MESSAGE_HEADER_CODE = 170
+    CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE = 171
+    CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE = 172
+    SERVER_SENDING_MESSAGE = 180
+    SELECT_CONVERSATION_HEADER_CODE = 190
+    SELECT_CONVERSATION_SUCCESS_HEADER_CODE = 191
+    SELECT_CONVERSATION_FAIL_HEADER_CODE = 192
+    GET_MESSAGES_HEADER_CODE = 200
+    GET_MESSAGES_SUCCESS_HEADER_CODE = 201
+    GET_MESSAGES_FAIL_HEADER_CODE = 202
 
 
 class Constants:
