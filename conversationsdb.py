@@ -38,7 +38,7 @@ class Conversations:
             conn.close()
 
             print("successfuly created conversation: " + name)
-            return self.get_conversationID_by_name(name), name
+            return self.get_conversationID_by_name(name), name # TODO URGENT: Change to last_rowid
 
         elif contype == 1 and self.check_if_conversation_exists(name):
             conn.close()

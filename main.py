@@ -195,13 +195,15 @@ class ServerComms:
             case ResponseCodes.CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE:
                 print("amazing")
                 sep_data = data.decode().split(Constants.SEPERATOR)
-                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], senderID=sep_data[1], nickname=sep_data[2], text=sep_data[3])
+                print(sep_data)
+                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], msg_id=sep_data[1], senderID=sep_data[2], nickname=sep_data[2], text=sep_data[3])
             case ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE:
                 print("not amazing")
             case ResponseCodes.SERVER_SENDING_MESSAGE:
                 print("amazing")
                 sep_data = data.decode().split(Constants.SEPERATOR)
-                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], senderID=sep_data[2], nickname=sep_data[2],
+                print(sep_data)
+                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], msg_id=sep_data[1],senderID=sep_data[2], nickname=sep_data[2],
                                                    text=sep_data[4])
             case ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE:
                 converID = data.decode()
@@ -447,8 +449,8 @@ class ChatPage(tk.Frame):
                                                                                                          sticky="nsew")
         self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].tkraise()
 
-    def add_message_to_chat(self, converID, senderID, nickname=None, avatar=None, text=None, ctime=None, data=None):
-        self.chat_containers[converID].add_message(senderID=senderID, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
+    def add_message_to_chat(self, converID, msg_id, senderID, nickname=None, avatar=None, text=None, ctime=None, data=None):
+        self.chat_containers[converID].add_message(msg_id=msg_id, senderID=senderID, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
 
 
 class ChatContainer(tk.Frame):
@@ -464,26 +466,23 @@ class ChatContainer(tk.Frame):
         self.messages_frame.pack()
         self.message_entry.pack()
         self.message_send_button.pack()
-        self.scrollbar = tk.Scrollbar(self.messages_frame)
-        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    def add_message(self, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
-        if senderID == self.controller.servercomms.commsdata.userId:
-            pass # TODO: Position message differently if the user sent it
-        MessageContainer(parent=self.messages_frame, controller=self.controller, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data).pack()
+    def add_message(self, msg_id, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
+        msg = MessageContainer(parent=self.messages_frame, controller=self.controller, sender_id=senderID, msg_id=msg_id, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
+        msg.grid(row=int(msg_id)+2)
 
-    def get_oldest_msg_id(self): # TODO: Make the server also send the messageID
-        pass
 
 class MessageContainer(tk.Frame):
     # TODO: Create different message layouts according to message type.
-    def __init__(self, parent, controller, nickname="test", avatar=None, text=None, ctime=None, data=None):
+    def __init__(self, parent, controller, msg_id, sender_id, nickname="test", avatar=None, text=None, ctime=None, data=None):
         tk.Frame.__init__(self, parent, highlightbackground="blue", highlightthickness=2)
         self.controller = controller
-        self.msg_sender = tk.Label(self, text=nickname + ":")
-        self.msg_text = tk.Label(self, text=text)
-        self.msg_sender.pack()
-        self.msg_text.pack()
+        self.msg_id = msg_id
+        self.msg_sender = sender_id
+        self.msg_senderw = tk.Label(self, text=nickname + ":")
+        self.msg_textw = tk.Label(self, text=text)
+        self.msg_senderw.grid(row=1)
+        self.msg_textw.grid(row=2)
 
 
 class ServerCommsData:
