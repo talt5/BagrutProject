@@ -6,17 +6,17 @@
 ##############################################################
 import tkinter as tk
 from tkinter import font as tkfont
+from PIL import ImageTk, Image
 import threading
 import traceback
 import socket
 import hashlib
 import os
-# import panda3d
 from enum import IntEnum
 from rsa import RSAEncryption
 from aes import AESEncryption
 
-
+# TODO URGENT: Compare between checksums of chat image for each chat.
 class ServerComms:
     def __init__(self, server_ip, server_port):
         self.server_ip = server_ip
@@ -196,21 +196,24 @@ class ServerComms:
                 print("amazing")
                 sep_data = data.decode().split(Constants.SEPERATOR)
                 print(sep_data)
-                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], msg_id=sep_data[1], senderID=sep_data[2], nickname=sep_data[2], text=sep_data[3])
+                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], msg_id=sep_data[1],
+                                                           senderID=sep_data[2], nickname=sep_data[2], text=sep_data[3])
             case ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE:
                 print("not amazing")
             case ResponseCodes.SERVER_SENDING_MESSAGE:
                 print("amazing")
                 sep_data = data.decode().split(Constants.SEPERATOR)
                 print(sep_data)
-                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], msg_id=sep_data[1],senderID=sep_data[2], nickname=sep_data[2],
-                                                   text=sep_data[4])
+                app.frames["ChatPage"].add_message_to_chat(converID=sep_data[0], msg_id=sep_data[1],
+                                                           senderID=sep_data[2], nickname=sep_data[2],
+                                                           text=sep_data[4])
             case ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE:
-                converID = data.decode()
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                converID = sep_data[0]
+                conver_name = sep_data[1]
                 print("conversation " + converID + "selected successfuly")
-                self.commsdata.update_selected_conversation(id=converID, name=converID)
+                self.commsdata.update_selected_conversation(id=converID, name=conver_name)
                 app.frames["ChatPage"].update_selected_conversation()
-
 
     def send_aes_key(self):
         header = ResponseCodes.AES_KEY_HEADER_CODE
@@ -296,6 +299,12 @@ class ResponseCodes(IntEnum):
 
 class App(tk.Tk):
     def __init__(self, *args, **kwargs):
+        if not os.path.exists("data"):
+            os.makedirs("data")
+            os.makedirs("data/default_pictures")
+            os.makedirs("data/conversations")
+
+
         tk.Tk.__init__(self, *args, **kwargs)
         self.title_font = tkfont.Font(family="Helvetica", size=18, weight="bold")
         self.servercomms = ServerComms("127.0.0.1", Constants.PORT)
@@ -307,7 +316,7 @@ class App(tk.Tk):
         container.grid_columnconfigure(0, weight=1)
 
         self.frames = {}
-        for Frame in (StartPage, LoginPage, RegistrationPage, ChatPage):
+        for Frame in (StartPage, LoginPage, RegistrationPage, ChatPage, ConversationCreationPage):
             page_name = Frame.__name__
             frame = Frame(parent=container, controller=self)
             self.frames[page_name] = frame
@@ -400,6 +409,32 @@ class RegistrationPage(tk.Frame):
     def update_frame(self):
         pass
 
+class ConversationCreationPage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        self.title_label = tk.Label(self, text="New Conversation", font=self.controller.title_font)
+        self.radio_var = tk.IntVar(value=1)
+        self.type1_radio = tk.Radiobutton(self, text="Private", variable=self.radio_var, value=1, command=self.sel)
+        self.type2_radio = tk.Radiobutton(self, text="Group", variable=self.radio_var, value=2, command=self.sel)
+        self.conver_name_entry = tk.Entry(self, width=60)
+        self.conver_name_entry.configure(state=tk.DISABLED)
+        self.participants_entry = tk.Entry(self, width=80)
+        self.create_button = tk.Button(self, text="Create Conversation")
+
+        self.title_label.pack()
+        self.type1_radio.pack()
+        self.type2_radio.pack(side=tk.RIGHT)
+        self.conver_name_entry.pack()
+        self.participants_entry.pack()
+        self.create_button.pack()
+
+    def sel(self):
+        if self.radio_var.get() == 1:
+            self.conver_name_entry.configure(state=tk.DISABLED)
+        if self.radio_var.get() == 2:
+            self.conver_name_entry.configure(state=tk.NORMAL)
+
 
 class ChatPage(tk.Frame):
     # TODO: Make an working system of displaying chats
@@ -408,16 +443,19 @@ class ChatPage(tk.Frame):
         self.controller = controller
         self.main_chat_container = tk.Frame(self)
         self.chat_containers = {}
+        self.chat_selection_buttons = {}
 
         self.username_label = tk.Label(self, text="Logged in as: ?", font=self.controller.title_font)
         conversation_name_entry = tk.Entry(self, width=60)
         conversation_create_button = tk.Button(self, text="Create new group", command=lambda:
         threading.Thread(self.controller.servercomms.create_new_conversation_action(conversation_name_entry.get(), 1)))
-        conversation_select_button = tk.Button(self, text="Select group", command=lambda: threading.Thread(self.controller.servercomms.select_conversation_from_server_action(conversation_name_entry.get())))
+        conversation_select_button = tk.Button(self, text="Select group", command=lambda: threading.Thread(
+            self.controller.servercomms.select_conversation_from_server_action(conversation_name_entry.get())))
         self.selected_conversation_label = tk.Label(self, text="Selected group: ?", font=self.controller.title_font)
         get_more_messages_button = tk.Button(self, text="Get New Messages", command=lambda: threading.Thread(
             self.controller.servercomms.ask_for_old_msgs_action(
-                converID=self.controller.servercomms.commsdata.selected_conversation["ID"], from_msg_id=0))) # TODO: Make this automatic
+                converID=self.controller.servercomms.commsdata.selected_conversation["ID"],
+                from_msg_id=0)))  # TODO: Make this automatic
         self.username_label.pack()
         conversation_name_entry.pack()
         conversation_create_button.pack()
@@ -432,10 +470,6 @@ class ChatPage(tk.Frame):
     def update_frame(self):
         self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
 
-    def ask_for_messages(self):
-        converID = self.controller.servercomms.commsdata.selected_conversation["ID"]
-        from_msg_id = self.chat_containers[converID]
-
     def update_selected_conversation(self):
         self.selected_conversation_label.configure(text="Selected group: " +
                                                         self.controller.servercomms.commsdata.selected_conversation[
@@ -443,38 +477,75 @@ class ChatPage(tk.Frame):
         if not self.controller.servercomms.commsdata.selected_conversation["ID"] in self.chat_containers:
             self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]] = ChatContainer(
                 parent=self.main_chat_container, controller=self.controller,
-                converID=self.controller.servercomms.commsdata.selected_conversation["ID"])
+                converID=self.controller.servercomms.commsdata.selected_conversation["ID"], conver_name=self.controller.servercomms.commsdata.selected_conversation["name"])
             self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].grid(row=0,
                                                                                                          column=0,
                                                                                                          sticky="nsew")
+            self.chat_selection_buttons[self.controller.servercomms.commsdata.selected_conversation["ID"]] = ChatSelectionButton(parent=self, controller=self.controller, converID=self.controller.servercomms.commsdata.selected_conversation["ID"], conver_name=self.controller.servercomms.commsdata.selected_conversation["name"]).pack(side=tk.LEFT)
         self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].tkraise()
 
-    def add_message_to_chat(self, converID, msg_id, senderID, nickname=None, avatar=None, text=None, ctime=None, data=None):
-        self.chat_containers[converID].add_message(msg_id=msg_id, senderID=senderID, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
+    def add_message_to_chat(self, converID, msg_id, senderID, nickname=None, avatar=None, text=None, ctime=None,
+                            data=None):
+        self.chat_containers[converID].add_message(msg_id=msg_id, senderID=senderID, nickname=nickname, avatar=avatar,
+                                                   text=text, ctime=ctime, data=data)
+
+class ChatSelectionButton(tk.Button):
+    def __init__(self, parent, controller, converID, conver_name):
+        self.controller = controller
+        self.converID = converID
+        self.conver_name = conver_name
+        self.photo_path = Constants.DEFAULT_CHAT_PICTURE_PATH
+        self.photo = tk.PhotoImage(file=self.photo_path)
+        tk.Button.__init__(self, parent, image=self.photo, text=conver_name, command=self.select_conversation, compound=tk.LEFT)
+
+    def select_conversation(self):
+        self.controller.servercomms.commsdata.update_selected_conversation(id=self.converID, name=self.conver_name)
+        self.controller.frames["ChatPage"].update_selected_conversation()
 
 
 class ChatContainer(tk.Frame):
-    def __init__(self, parent, controller, converID):
+    def __init__(self, parent, controller, converID, conver_name):
         tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
         self.controller = controller
         self.converID = converID
+        self.conver_name = conver_name
+        self.conver_header = ChatHeaderContainer(parent=self, controller=self.controller, converID=self.converID, conver_name=self.conver_name, picture_path=Constants.DEFAULT_CHAT_PICTURE_PATH, participants=["testing"])
         self.messages_frame = tk.Frame(self)
         self.message_entry = tk.Entry(self)
         self.message_send_button = tk.Button(self, text="Send",
                                              command=lambda: self.controller.servercomms.send_message(
                                                  converID=self.converID, text=self.message_entry.get()))
+        self.conver_header.pack(fill=tk.X)
         self.messages_frame.pack()
         self.message_entry.pack()
         self.message_send_button.pack()
 
     def add_message(self, msg_id, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
-        msg = MessageContainer(parent=self.messages_frame, controller=self.controller, sender_id=senderID, msg_id=msg_id, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
-        msg.grid(row=int(msg_id)+2)
+        msg = MessageContainer(parent=self.messages_frame, controller=self.controller, sender_id=senderID,
+                               msg_id=msg_id, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
+        msg.grid(row=int(msg_id) + 2)
+
+class ChatHeaderContainer(tk.Frame):
+    def __init__(self, parent, controller, converID, conver_name, picture_path = None, participants=[""]):
+        tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
+        self.controller = controller
+        self.conver_picture = tk.PhotoImage(file=picture_path)
+        self.conver_picture_label = tk.Label(self, image=self.conver_picture)
+        self.name_label = tk.Label(self, text=conver_name, font=("MS Sans Serif", "16", "bold"))
+        participants = ", ".join(participants)
+        self.participants_label = tk.Label(self, text=participants)
+
+        self.conver_picture_label.grid(row=1, column=1, rowspan=2)
+        self.name_label.grid(row=1, column=2)
+        self.participants_label.grid(row=2, column=2)
+
+
 
 
 class MessageContainer(tk.Frame):
     # TODO: Create different message layouts according to message type.
-    def __init__(self, parent, controller, msg_id, sender_id, nickname="test", avatar=None, text=None, ctime=None, data=None):
+    def __init__(self, parent, controller, msg_id, sender_id, nickname="test", avatar=None, text=None, ctime=None,
+                 data=None):
         tk.Frame.__init__(self, parent, highlightbackground="blue", highlightthickness=2)
         self.controller = controller
         self.msg_id = msg_id
@@ -533,7 +604,7 @@ class Constants:
     PORT = 8820
     FORMAT = "utf-8"
     SEPERATOR = "█"
-
+    DEFAULT_CHAT_PICTURE_PATH = "data/default_pictures/default_chat_picture.png"
 
 if __name__ == "__main__":
     app = App()

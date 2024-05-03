@@ -1,5 +1,7 @@
 import sqlite3
 import os
+import userdb as userdb
+import messagedb as meesagedb
 
 class Conversations:
     """Creates database with users table includes:
@@ -26,21 +28,23 @@ class Conversations:
         conn.commit()
         conn.close()
 
-    def create_new_conversation(self, name, contype=1):
+    def create_new_conversation(self, creatorID, secUserID, name, contype=1):
         conn = sqlite3.connect(self.DBNAME)
         print(name)
-        if contype == 1 and not self.check_if_conversation_exists(name):
+        if contype == 1 and not self.get_private_conversation_with_both_users(creatorID, secUserID): # FIXME URGENT: Instead, search for a conver with type 1 in the users database.
             insert_query = (
                     "INSERT INTO " + self.__tablename + " (" + self.__conversationname + "," + self.__conversationtype + ") " + "VALUES "
                     + "(?,?)")
-            conn.execute(insert_query, (str(name), contype))
+            cursor = conn.cursor()
+            cursor.execute(insert_query, (str(name), contype))
             conn.commit()
+            converID = cursor.lastrowid
             conn.close()
 
             print("successfuly created conversation: " + name)
-            return self.get_conversationID_by_name(name), name # TODO URGENT: Change to last_rowid
+            return converID, name
 
-        elif contype == 1 and self.check_if_conversation_exists(name):
+        elif contype == 1 and self.get_private_conversation_with_both_users(creatorID, secUserID):
             conn.close()
             print("conversation: " + name + "already exists")
             return None, None
@@ -48,7 +52,6 @@ class Conversations:
         conn.close()
 
     def get_conversationID_by_name(self, name):
-        # FIXME: Find and fix this weird ass bug which causes this def to always return "1"
         conn = sqlite3.connect(self.DBNAME)
         print(name)
         query = "SELECT " + self.__conversationID + " FROM " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + name + "'"
@@ -56,6 +59,28 @@ class Conversations:
         conversationid = cursor.fetchone()[0]
         conn.close()
         return conversationid
+
+    def get_private_conversation_with_both_users(self, userID, sec_userID):
+        conn = sqlite3.connect(self.DBNAME)
+        userdata = userdb.User(userID=userID)
+        userconvers = userdata.get_all_convers()
+        for converID in userconvers:
+            converID = converID[0]
+            print("converid: " , converID)
+            mdb = meesagedb.Conversation(conversationID=converID)
+            query = "SELECT " + self.__conversationtype + " FROM " + self.__tablename + " WHERE " + self.__conversationID + " = " + str(converID)
+            cursor = conn.cursor()
+            cursor.execute(query)
+            conver_type = cursor.fetchone()[0]
+            print("convertype: " , conver_type)
+            if conver_type == 1 and mdb.check_if_user_is_participating(sec_userID):
+                conn.close()
+                print("sec_user conver exists")
+                return converID
+        conn.close()
+        print("sec_user conver not exists")
+        return 0
+
 
     def check_if_conversation_exists(self, name):
         conn = sqlite3.connect(self.DBNAME)
@@ -67,3 +92,11 @@ class Conversations:
         else:
             conn.close()
             return True
+
+    def get_conversation_type_by_id(self, converID):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "SELECT " + self.__conversationtype + " from " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(converID) + "'"
+        cursor = conn.execute(query)
+        conver_type = cursor.fetchone()[0]
+        conn.close()
+        return conver_type

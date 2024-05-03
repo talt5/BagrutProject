@@ -13,7 +13,7 @@ from rsa import RSAEncryption
 from aes import AESEncryption
 
 
-# TODO: When a conversation receives a message, send it to all users.
+
 class Server(object):
 
     def __init__(self, ip, port):
@@ -21,9 +21,9 @@ class Server(object):
             os.makedirs("db")
             os.makedirs("db/conversations")
             os.makedirs("db/users")
-        elif not os.path.exists("db/conversations"):
+        if not os.path.exists("db/conversations"):
             os.makedirs("db/conversations")
-        elif not os.path.exists("db/users"):
+        if not os.path.exists("db/users"):
             os.makedirs("db/users")
 
         self.ip = ip
@@ -230,14 +230,24 @@ class Server(object):
             case ResponseCodes.CREATE_NEW_CONVERSATION_HEADER_CODE:
                 try:
                     seperated_data = data.decode().split(Constants.SEPERATOR)
-                    if int(seperated_data[1]) == 1:  # if type = 1
+                    if int(seperated_data[1]) == 1:  # if type = 1 - private conversation
                         secondID = self.db.select_userdata_by_username(username=seperated_data[0], spdata="userId")
+                        print(secondID)
+                        if not secondID:
+                            header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
+                            msg = "given user does not exist"
+                            snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                            snd.start()
+                            return
+
                         firstID = client.userId
                         conver_name = str(firstID) + str(secondID)
                         converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name,
-                                                                                                contype=1)
+                                                                                                contype=1, creatorID=firstID, secUserID=secondID)
+                        conver_name = self.db.select_userdata_by_username(username=seperated_data[0], spdata="fullname")
                         if converID is not None:
                             client.userdb.add_conversation(converID)
+                            userdb.User(secondID).add_conversation(converID)
                             mdb = messagedb.Conversation(converID)
                             mdb.insert_participant(userID=firstID, isadmin=1)
                             mdb.insert_participant(userID=secondID, isadmin=1)
@@ -251,7 +261,9 @@ class Server(object):
                             msg = "already exists"
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                             snd.start()
-                        # TODO: find a way to get the conversaion id after creating it.
+                    elif int(seperated_data[1]) == 2: # if type = 2 - group conversation
+                        pass
+
                     else:
                         header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
                         msg = "something happened"
@@ -286,21 +298,27 @@ class Server(object):
                     msg = "User not participating in this chat!"
                     snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                     snd.start()
-            case ResponseCodes.SELECT_CONVERSATION_HEADER_CODE:
-                try:
-                    data = data.decode()
-                    # TODO: Check if conversation exists.
-                    mdb = messagedb.Conversation(conversationID=data)
-                    if mdb.check_if_user_is_participating(client.userId):
-                        header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
-                        msg = data
-                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
-                        snd.start()
-                    else:
-                        header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
-                        msg = "User not participating in this chat!"
-                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
-                        snd.start()
+            # I don't need this anymore <3
+            # case ResponseCodes.SELECT_CONVERSATION_HEADER_CODE:
+            #     try:
+            #         data = data.decode()
+            #         if self.allconversationsdb.check_if_conversation_exists(data):
+            #             mdb = messagedb.Conversation(conversationID=data)
+            #             if mdb.check_if_user_is_participating(client.userId):
+            #                 header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
+            #                 msg = data
+            #                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+            #                 snd.start()
+            #             else:
+            #                 header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
+            #                 msg = "User not participating in this chat!"
+            #                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+            #                 snd.start()
+            #         else:
+            #             header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
+            #             msg = "Conversation does not exist!"
+            #             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+            #             snd.start()
 
                 except Exception as error:
                     print(error)
@@ -319,12 +337,20 @@ class Server(object):
     def send_to_user_all_his_convers(self, client):
         try:
             user_conversations = client.userdb.get_all_convers()
-            header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
-            for converID in user_conversations:
-                converID = converID[0]
-                msg = str(converID)
-                snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
-                snd.start()
+            if user_conversations is not None:
+                header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
+                for converID in user_conversations:
+                    converID = converID[0]
+                    mdb = messagedb.Conversation(conversationID=converID)
+                    conver_type = self.allconversationsdb.get_conversation_type_by_id(converID=converID)
+                    if conver_type == 1:
+                        second_userId = mdb.get_all_participant_ids()
+                        second_userId.remove(client.userId)
+                        second_userId = second_userId[0]
+                        second_name = self.db.select_userdata_by_userId(userId=second_userId, spdata="fullname")
+                        msg = str(converID) + Constants.SEPERATOR + second_name
+                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
+                        snd.start()
         except Exception as error:
             print(error)
 
@@ -352,8 +378,6 @@ class Server(object):
             mdb = messagedb.Conversation(conversationID=converID)
             participants = mdb.get_all_participant_ids()
             for userID in participants:
-                userID = userID[0]
-                print(userID)
                 if userID in self.logged_in_clients:
                     print("sending to " + str(userID))
                     self.send_message_to_client(converID=converID, messageID=messageID, client=self.logged_in_clients[userID])
@@ -470,6 +494,7 @@ class ClientConnData:
         self.userdata["email"] = db_userdata[2]
         self.userdata["phonenum"] = db_userdata[3]
         self.userdata["username"] = db_userdata[4]
+        print(self.userdb.get_all_convers())
 
 
 class ResponseCodes(IntEnum):

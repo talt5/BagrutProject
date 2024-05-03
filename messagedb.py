@@ -95,6 +95,7 @@ class Conversation:
 
     def get_all_participant_ids(self):
         conn = sqlite3.connect(self.DBNAME)
+        conn.row_factory = lambda cursor, row: row[0]
         query = "SELECT " + self.__userId + " FROM " + self.__prtctablename
         cursor = conn.execute(query)
         return cursor.fetchall()
