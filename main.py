@@ -43,12 +43,23 @@ class ServerComms:
                 if self.commsdata.encrypted_comms is True:
                     nonce_len = int(self.client.recv(2).decode())
                     nonce = self.client.recv(nonce_len)
-                    packet_len = int(self.client.recv(4).decode())
-                    packet = self.client.recv(packet_len)
-                    decrypted_packet = self.commsdata.aes.decrypt_data(packet, nonce)
+                    packet_len = int(self.client.recv(10).decode())
+                    print("actual packet len: ", packet_len)
+                    bytes_received = 0
+                    data = bytearray()
+                    while bytes_received < packet_len:
+                        if packet_len - bytes_received < 1024:
+                            packet = self.client.recv(packet_len - bytes_received)
+                            bytes_received = packet_len
+                        else:
+                            packet = self.client.recv(1024)
+                            bytes_received += 1024
+                        print("received until now: ", bytes_received)
+                        data.extend(packet)
+                    decrypted_packet = self.commsdata.aes.decrypt_data(data, nonce)
                     decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode())
                     decrypted_data = decrypted_packet[
-                                     Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
+                                     Constants.HEADER_LENGTH:]
                     print("received", nonce_len)
                     print("received", nonce)
                     print("received", decrypted_packet)
@@ -71,19 +82,24 @@ class ServerComms:
                 print(error)
         self.client.close()
 
-    # TODO: make an error message in tkinter if connection was cut during transmission.
     def send_to_server(self, header, msg):
         try:
             if self.commsdata.encrypted_comms is True:
-                while True:
-                    header = str(header).zfill(Constants.HEADER_LENGTH).encode()
-                    if type(msg) is not bytes:
-                        msg = msg.encode()
-                    print("sending: ".encode() + header + msg)
-                    encrypted_packet, nonce = self.commsdata.aes.encrypt_data(header + msg)
-                    packet = str(len(nonce)).zfill(2).encode() + nonce + encrypted_packet
-                    self.client.send(packet)
-                    break
+                header = str(header).zfill(Constants.HEADER_LENGTH).encode()
+                if type(msg) is not bytes:
+                    msg = msg.encode()
+                print("sending: ".encode() + header + msg)
+                encrypted_data, nonce = self.commsdata.aes.encrypt_data(header + msg)
+                packet_len = str(len(encrypted_data)).zfill(10).encode()
+                print("actual data len: ", packet_len)
+                packet = encrypted_data
+                self.client.send(str(len(nonce)).zfill(2).encode() + nonce + packet_len)
+                packet_sent_len = 0
+                packet_len = int(packet_len)
+                while packet_sent_len < packet_len:
+                    self.client.send(packet[packet_sent_len:packet_sent_len+1024])
+                    packet_sent_len += len(packet[packet_sent_len:packet_sent_len+1024])
+                    print("sent until now: ", packet_sent_len)
             else:
                 while True:
                     header = str(header).zfill(Constants.HEADER_LENGTH)
@@ -613,4 +629,3 @@ if __name__ == "__main__":
 # TODO: Delete update_frame and instead make an unique def for each updating action.
 # TODO: Add character creation system.
 # TODO: Yassify the chat: adding hands to the sides of the main window with pink sparking nails. chaning the cursor to a yassified hand.
-# TODO: Send to server with packet_len

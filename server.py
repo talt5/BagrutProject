@@ -66,12 +66,23 @@ class Server(object):
                 if client.encrypted_comms is True:
                     nonce_len = int(conn.recv(2).decode())
                     nonce = conn.recv(nonce_len)
-                    packet = conn.recv(Constants.PACKET_SIZE)
-                    decrypted_packet = client.aes.decrypt_data(packet, nonce)
-                    decrypted_header = int(decrypted_packet[
-                                           :Constants.HEADER_LENGTH].decode())  # for now until a proper header protocol is made
+                    packet_len = int(conn.recv(10).decode())
+                    print("actual packet len: ", packet_len)
+                    bytes_received = 0
+                    data = bytearray()
+                    while bytes_received < packet_len:
+                        if packet_len - bytes_received < 1024:
+                            packet = conn.recv(packet_len - bytes_received)
+                            bytes_received = packet_len
+                        else:
+                            packet = conn.recv(1024)
+                            bytes_received += 1024
+                        print("received until now: ", bytes_received)
+                        data.extend(packet)
+                    decrypted_packet = client.aes.decrypt_data(data, nonce)
+                    decrypted_header = int(decrypted_packet[:Constants.HEADER_LENGTH].decode())
                     decrypted_data = decrypted_packet[
-                                     Constants.HEADER_LENGTH:(Constants.PACKET_SIZE - Constants.HEADER_LENGTH)]
+                                     Constants.HEADER_LENGTH:]
                     print("received: ".encode() + decrypted_data)
                     print(decrypted_header)
                     print(decrypted_data)
@@ -279,6 +290,7 @@ class Server(object):
                     snd.start()
 
             case ResponseCodes.CLIENT_SENDING_MESSAGE_HEADER_CODE:
+                # TODO: Check that client didn't add seperators in message
                 try:
                     seperated_data = data.decode().split(Constants.SEPERATOR)
                     mdb = messagedb.Conversation(conversationID=seperated_data[0])
@@ -407,17 +419,22 @@ class Server(object):
 
     def send_to_client(self, header, msg, conn, client):
         if client.encrypted_comms is True:
-            while True:
-                header = str(header).zfill(Constants.HEADER_LENGTH).encode()
-                if type(msg) is not bytes:
-                    msg = msg.encode()
-                print("sending:".encode() + header + msg)
-                encrypted_data, nonce = client.aes.encrypt_data(header + msg)
-                packet_len = str(len(encrypted_data)).zfill(4).encode()
-                packet = str(len(nonce)).zfill(2).encode() + nonce + packet_len + encrypted_data
-                conn.send(packet)
-                print("done sending")
-                break
+            header = str(header).zfill(Constants.HEADER_LENGTH).encode()
+            if type(msg) is not bytes:
+                msg = msg.encode()
+            print("sending:".encode() + header + msg)
+            encrypted_data, nonce = client.aes.encrypt_data(header + msg)
+            packet_len = str(len(encrypted_data)).zfill(10).encode()
+            print("actual data len: ", packet_len)
+            packet = encrypted_data
+            conn.send(str(len(nonce)).zfill(2).encode() + nonce + packet_len)
+            packet_sent_len = 0
+            packet_len = int(packet_len)
+            while packet_sent_len < packet_len:
+                conn.send(packet[packet_sent_len:packet_sent_len + 1024])
+                packet_sent_len += len(packet[packet_sent_len:packet_sent_len + 1024])
+                print("sent until now: ", packet_sent_len)
+            print("done sending")
         else:
             while True:
                 header = str(header).zfill(Constants.HEADER_LENGTH).encode()
