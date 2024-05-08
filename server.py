@@ -242,8 +242,7 @@ class Server(object):
                 try:
                     seperated_data = data.decode().split(Constants.SEPERATOR)
                     if int(seperated_data[1]) == 1:  # if type = 1 - private conversation
-                        secondID = self.db.select_userdata_by_username(username=seperated_data[0], spdata="userId")
-                        print(secondID)
+                        secondID = self.db.select_userdata_by_username(username=seperated_data[2], spdata="userId")
                         if not secondID:
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
                             msg = "given user does not exist"
@@ -253,9 +252,9 @@ class Server(object):
 
                         firstID = client.userId
                         conver_name = str(firstID) + str(secondID)
-                        converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name,
-                                                                                                contype=1, creatorID=firstID, secUserID=secondID)
-                        conver_name = self.db.select_userdata_by_username(username=seperated_data[0], spdata="fullname")
+                        converID, conver_name, conver_image = self.allconversationsdb.create_new_conversation(name=conver_name,
+                                                                                                contype=1, creatorID=firstID, secUserID=secondID, image=seperated_data[3])
+                        conver_name = self.db.select_userdata_by_username(username=seperated_data[2], spdata="fullname")
                         if converID is not None:
                             client.userdb.add_conversation(converID)
                             userdb.User(secondID).add_conversation(converID)
@@ -263,9 +262,15 @@ class Server(object):
                             mdb.insert_participant(userID=firstID, isadmin=1)
                             mdb.insert_participant(userID=secondID, isadmin=1)
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE
-                            msg = str(converID) + Constants.SEPERATOR + conver_name
+                            msg = str(converID) + Constants.SEPERATOR + conver_name + Constants.SEPERATOR + conver_image
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                             snd.start()
+                            second_client = None
+                            if secondID in self.logged_in_clients:
+                                second_client = self.logged_in_clients[secondID]
+                            if second_client:
+                                snd = threading.Thread(target=self.send_to_client, args=(header, msg, second_client.conn, second_client))
+                                snd.start()
 
                         else:
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
@@ -281,7 +286,7 @@ class Server(object):
                         snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                         snd.start()
                 except Exception as error:
-                    print(error)
+                    print(traceback.format_exc())
                     snd = threading.Thread(target=self.send_to_client,
                                            args=(
                                                ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE,
@@ -310,34 +315,6 @@ class Server(object):
                     msg = "User not participating in this chat!"
                     snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                     snd.start()
-            # I don't need this anymore <3
-            # case ResponseCodes.SELECT_CONVERSATION_HEADER_CODE:
-            #     try:
-            #         data = data.decode()
-            #         if self.allconversationsdb.check_if_conversation_exists(data):
-            #             mdb = messagedb.Conversation(conversationID=data)
-            #             if mdb.check_if_user_is_participating(client.userId):
-            #                 header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
-            #                 msg = data
-            #                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
-            #                 snd.start()
-            #             else:
-            #                 header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
-            #                 msg = "User not participating in this chat!"
-            #                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
-            #                 snd.start()
-            #         else:
-            #             header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
-            #             msg = "Conversation does not exist!"
-            #             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
-            #             snd.start()
-
-                except Exception as error:
-                    print(error)
-                    header = ResponseCodes.SELECT_CONVERSATION_FAIL_HEADER_CODE
-                    msg = "error while selecting conversation"
-                    snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
-                    snd.start()
 
             case ResponseCodes.GET_MESSAGES_HEADER_CODE:
                 try:
@@ -355,14 +332,34 @@ class Server(object):
                     converID = converID[0]
                     mdb = messagedb.Conversation(conversationID=converID)
                     conver_type = self.allconversationsdb.get_conversation_type_by_id(converID=converID)
-                    if conver_type == 1:
+                    if conver_type == 1: # FIXME URGENT: conver_type 1 should get pfp as image and not conver_image. TEMPORARY FOR TESTING
                         second_userId = mdb.get_all_participant_ids()
                         second_userId.remove(client.userId)
                         second_userId = second_userId[0]
                         second_name = self.db.select_userdata_by_userId(userId=second_userId, spdata="fullname")
-                        msg = str(converID) + Constants.SEPERATOR + second_name
+                        conver_image = self.allconversationsdb.get_conver_image_by_id(converID=converID)
+                        msg = str(converID) + Constants.SEPERATOR + second_name + Constants.SEPERATOR + conver_image
                         snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
                         snd.start()
+                    elif conver_type == 2:
+                        pass
+        except Exception as error:
+            print(error)
+
+    def send_to_user_a_conver(self, converID, client):
+        try:
+            header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
+            mdb = messagedb.Conversation(conversationID=converID)
+            conver_type = self.allconversationsdb.get_conversation_type_by_id(converID=converID)
+            if conver_type == 1:
+                second_userId = mdb.get_all_participant_ids()
+                second_userId.remove(client.userId)
+                second_userId = second_userId[0]
+                second_name = self.db.select_userdata_by_userId(userId=second_userId, spdata="fullname")
+                conver_image = self.allconversationsdb.get_conver_image_by_id(converID=converID)
+                msg = str(converID) + Constants.SEPERATOR + second_name + Constants.SEPERATOR + conver_image
+                snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
+                snd.start()
         except Exception as error:
             print(error)
 
@@ -383,7 +380,6 @@ class Server(object):
                         self.send_message_to_client(converID=converID, messageID=(from_msg_id - i), client=client)
         except Exception as error:
             print(error)
-
 
     def send_message_to_all_online_conver_participants(self, converID, messageID):
         try:
@@ -419,6 +415,9 @@ class Server(object):
 
     def send_to_client(self, header, msg, conn, client):
         if client.encrypted_comms is True:
+            while client.socket_in_use: # In order to not send a lot of packets simultaneously and break the socket.
+                time.sleep(0.01)
+            client.socket_in_use = True
             header = str(header).zfill(Constants.HEADER_LENGTH).encode()
             if type(msg) is not bytes:
                 msg = msg.encode()
@@ -434,6 +433,7 @@ class Server(object):
                 conn.send(packet[packet_sent_len:packet_sent_len + 1024])
                 packet_sent_len += len(packet[packet_sent_len:packet_sent_len + 1024])
                 print("sent until now: ", packet_sent_len)
+            client.socket_in_use = False
             print("done sending")
         else:
             while True:
@@ -481,6 +481,7 @@ class ClientConnData:
         self.userId = None
         self.userdb = None
         self.userdata = {"nickname": None, "email": None, "phonenum": None, "username": None}
+        self.socket_in_use = False
 
     def aes(self):
         return self.aes

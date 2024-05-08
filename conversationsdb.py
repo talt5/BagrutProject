@@ -14,6 +14,7 @@ class Conversations:
         self.__conversationID = "conversationID"
         self.__conversationname = "conversationname"
         self.__conversationtype = "conversationtype"
+        self.__conversationimage = "conversationimage"
 
         self.DBNAME = os.path.realpath("db/conversations/" + "conversationIDs.db")
 
@@ -22,32 +23,34 @@ class Conversations:
         query_str = "CREATE TABLE IF NOT EXISTS " + self.__tablename + "(" + self.__conversationID + " " + \
                     " INTEGER PRIMARY KEY AUTOINCREMENT ,"
         query_str += " " + self.__conversationname + " TEXT    NOT NULL ,"
-        query_str += " " + self.__conversationtype + " INTEGER    NOT NULL );"
+        query_str += " " + self.__conversationtype + " INTEGER    NOT NULL ,"
+        query_str += " " + self.__conversationimage + " TEXT );"
 
         conn.execute(query_str)
         conn.commit()
         conn.close()
 
-    def create_new_conversation(self, creatorID, secUserID, name, contype=1):
+    def create_new_conversation(self, creatorID, secUserID, name, image, contype=1):
         conn = sqlite3.connect(self.DBNAME)
         print(name)
-        if contype == 1 and not self.get_private_conversation_with_both_users(creatorID, secUserID): # FIXME URGENT: Instead, search for a conver with type 1 in the users database.
+        if contype == 1 and not self.get_private_conversation_with_both_users(creatorID, secUserID): # FIXME URGENT: Conver_image should be only in type 2. Instead the conver_image shoud be pfp.
             insert_query = (
-                    "INSERT INTO " + self.__tablename + " (" + self.__conversationname + "," + self.__conversationtype + ") " + "VALUES "
-                    + "(?,?)")
+                    "INSERT INTO " + self.__tablename + " (" + self.__conversationname + "," + self.__conversationtype + "," + self.__conversationimage + ") " + "VALUES "
+                    + "(?,?,?)")
             cursor = conn.cursor()
-            cursor.execute(insert_query, (str(name), contype))
+            cursor.execute(insert_query, (str(name), contype, image))
             conn.commit()
             converID = cursor.lastrowid
+            conver_image = self.get_conver_image_by_id(converID=converID)
             conn.close()
 
             print("successfuly created conversation: " + name)
-            return converID, name
+            return converID, name, conver_image
 
         elif contype == 1 and self.get_private_conversation_with_both_users(creatorID, secUserID):
             conn.close()
             print("conversation: " + name + "already exists")
-            return None, None
+            return None, None, None
 
         conn.close()
 
@@ -100,3 +103,12 @@ class Conversations:
         conver_type = cursor.fetchone()[0]
         conn.close()
         return conver_type
+
+    def get_conver_image_by_id(self, converID):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "SELECT " + self.__conversationimage + " from " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(
+            converID) + "'"
+        cursor = conn.execute(query)
+        conver_image = cursor.fetchone()[0]
+        conn.close()
+        return conver_image
