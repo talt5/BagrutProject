@@ -262,7 +262,7 @@ class Server(object):
                             mdb.insert_participant(userID=firstID, isadmin=1)
                             mdb.insert_participant(userID=secondID, isadmin=1)
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE
-                            msg = str(converID) + Constants.SEPERATOR + conver_name + Constants.SEPERATOR + conver_image
+                            msg = str(converID) + Constants.SEPERATOR + seperated_data[1] + Constants.SEPERATOR + conver_name + Constants.SEPERATOR + conver_image
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                             snd.start()
                             second_client = None
@@ -278,7 +278,36 @@ class Server(object):
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                             snd.start()
                     elif int(seperated_data[1]) == 2: # if type = 2 - group conversation
-                        pass
+                        usernames = seperated_data[2].split(',')
+                        userIDs = []
+                        for username in usernames:
+                            userID = self.db.select_userdata_by_username(username=username, spdata="userId")
+                            if not userID:
+                                header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
+                                msg = "username: " + username + " does not exist. Did not add them to conversation."
+                                snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                                snd.start()
+                                continue
+                            userIDs.append(userID)
+                        creatorID = client.userId
+                        conver_name = seperated_data[0]
+                        converID, conver_name, conver_image = self.allconversationsdb.create_new_conversation(name=conver_name, contype=2, creatorID=creatorID, secUserID=None, image=seperated_data[3])
+                        if converID is not None:
+                            client.userdb.add_conversation(converID)
+                            mdb = messagedb.Conversation(converID)
+                            mdb.insert_participant(userID=creatorID, isadmin=1)
+                            for userID in userIDs:
+                                mdb.insert_participant(userID=userID, isadmin=0)
+                                userdb.User(userID).add_conversation(converID)
+                                if userID in self.logged_in_clients:
+                                    second_client = self.logged_in_clients[userID]
+                                    self.send_to_user_a_conver(converID=converID, client=second_client)
+                            self.send_to_user_a_conver(converID=converID, client=client)
+                        else:
+                            header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
+                            msg = "an error has occurred while creating conver"
+                            snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                            snd.start()
 
                     else:
                         header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
@@ -327,37 +356,39 @@ class Server(object):
         try:
             user_conversations = client.userdb.get_all_convers()
             if user_conversations is not None:
-                header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
                 for converID in user_conversations:
                     converID = converID[0]
-                    mdb = messagedb.Conversation(conversationID=converID)
-                    conver_type = self.allconversationsdb.get_conversation_type_by_id(converID=converID)
-                    if conver_type == 1: # FIXME URGENT: conver_type 1 should get pfp as image and not conver_image. TEMPORARY FOR TESTING
-                        second_userId = mdb.get_all_participant_ids()
-                        second_userId.remove(client.userId)
-                        second_userId = second_userId[0]
-                        second_name = self.db.select_userdata_by_userId(userId=second_userId, spdata="fullname")
-                        conver_image = self.allconversationsdb.get_conver_image_by_id(converID=converID)
-                        msg = str(converID) + Constants.SEPERATOR + second_name + Constants.SEPERATOR + conver_image
-                        snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
-                        snd.start()
-                    elif conver_type == 2:
-                        pass
+                    self.send_to_user_a_conver(converID=converID, client=client)
         except Exception as error:
-            print(error)
+            print(traceback.format_exc())
 
     def send_to_user_a_conver(self, converID, client):
         try:
             header = ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE
             mdb = messagedb.Conversation(conversationID=converID)
-            conver_type = self.allconversationsdb.get_conversation_type_by_id(converID=converID)
+            conver_type = self.allconversationsdb.get_conver_spdata_by_id(converID=converID, spdata="conversationtype")
             if conver_type == 1:
                 second_userId = mdb.get_all_participant_ids()
                 second_userId.remove(client.userId)
                 second_userId = second_userId[0]
                 second_name = self.db.select_userdata_by_userId(userId=second_userId, spdata="fullname")
-                conver_image = self.allconversationsdb.get_conver_image_by_id(converID=converID)
-                msg = str(converID) + Constants.SEPERATOR + second_name + Constants.SEPERATOR + conver_image
+                conver_image = self.allconversationsdb.get_conver_spdata_by_id(converID=converID, spdata="conversationimage")
+                msg = str(converID) + Constants.SEPERATOR + str(conver_type) + Constants.SEPERATOR + second_name + Constants.SEPERATOR + conver_image
+                snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
+                snd.start()
+            elif conver_type == 2:
+                userIds = mdb.get_all_participant_ids()
+                participants_names = ""
+                for userID in userIds:
+                    second_name = self.db.select_userdata_by_userId(userId=userID, spdata="fullname")
+                    participants_names = ", ".join([participants_names, second_name])
+                participants_names = participants_names[1:]  # to delete the first comma
+                conver_image = self.allconversationsdb.get_conver_spdata_by_id(converID=converID,
+                                                                               spdata="conversationimage")
+                conver_name = self.allconversationsdb.get_conver_spdata_by_id(converID=converID,
+                                                                              spdata="conversationname")
+                msg = str(converID) + Constants.SEPERATOR + str(
+                    conver_type) + Constants.SEPERATOR + conver_name + Constants.SEPERATOR + conver_image + Constants.SEPERATOR + participants_names
                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
                 snd.start()
         except Exception as error:

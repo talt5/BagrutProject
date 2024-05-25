@@ -3,12 +3,14 @@ import os
 import userdb as userdb
 import messagedb as meesagedb
 
+
 class Conversations:
     """Creates database with users table includes:
        create query
        insert query
        select query
     """
+
     def __init__(self):
         self.__tablename = "conversations"
         self.__conversationID = "conversationID"
@@ -30,10 +32,11 @@ class Conversations:
         conn.commit()
         conn.close()
 
-    def create_new_conversation(self, creatorID, secUserID, name, image, contype=1):
+    def create_new_conversation(self, creatorID, secUserID, name, image, contype):
         conn = sqlite3.connect(self.DBNAME)
         print(name)
-        if contype == 1 and not self.get_private_conversation_with_both_users(creatorID, secUserID): # FIXME URGENT: Conver_image should be only in type 2. Instead the conver_image shoud be pfp.
+        if contype == 1 and not self.get_private_conversation_with_both_users(creatorID,
+                                                                              secUserID):  # FIXME URGENT: Conver_image should be only in type 2. Instead the conver_image shoud be pfp.
             insert_query = (
                     "INSERT INTO " + self.__tablename + " (" + self.__conversationname + "," + self.__conversationtype + "," + self.__conversationimage + ") " + "VALUES "
                     + "(?,?,?)")
@@ -41,16 +44,30 @@ class Conversations:
             cursor.execute(insert_query, (str(name), contype, image))
             conn.commit()
             converID = cursor.lastrowid
-            conver_image = self.get_conver_image_by_id(converID=converID)
+            conver_image = self.get_conver_spdata_by_id(converID=converID, spdata=self.__conversationimage)
             conn.close()
 
-            print("successfuly created conversation: " + name)
+            print("successfuly created private conversation: " + name)
             return converID, name, conver_image
 
         elif contype == 1 and self.get_private_conversation_with_both_users(creatorID, secUserID):
             conn.close()
             print("conversation: " + name + "already exists")
             return None, None, None
+
+        elif contype == 2:
+            insert_query = (
+                    "INSERT INTO " + self.__tablename + " (" + self.__conversationname + "," + self.__conversationtype + "," + self.__conversationimage + ") " + "VALUES "
+                    + "(?,?,?)")
+            cursor = conn.cursor()
+            cursor.execute(insert_query, (str(name), contype, image))
+            conn.commit()
+            converID = cursor.lastrowid
+            conver_image = self.get_conver_spdata_by_id(converID=converID, spdata=self.__conversationimage)
+            conn.close()
+            print("successfuly created group conversation: " + name)
+
+            return converID, name, conver_image
 
         conn.close()
 
@@ -69,13 +86,14 @@ class Conversations:
         userconvers = userdata.get_all_convers()
         for converID in userconvers:
             converID = converID[0]
-            print("converid: " , converID)
+            print("converid: ", converID)
             mdb = meesagedb.Conversation(conversationID=converID)
-            query = "SELECT " + self.__conversationtype + " FROM " + self.__tablename + " WHERE " + self.__conversationID + " = " + str(converID)
+            query = "SELECT " + self.__conversationtype + " FROM " + self.__tablename + " WHERE " + self.__conversationID + " = " + str(
+                converID)
             cursor = conn.cursor()
             cursor.execute(query)
             conver_type = cursor.fetchone()[0]
-            print("convertype: " , conver_type)
+            print("convertype: ", conver_type)
             if conver_type == 1 and mdb.check_if_user_is_participating(sec_userID):
                 conn.close()
                 print("sec_user conver exists")
@@ -83,7 +101,6 @@ class Conversations:
         conn.close()
         print("sec_user conver not exists")
         return 0
-
 
     def check_if_conversation_exists(self, name):
         conn = sqlite3.connect(self.DBNAME)
@@ -96,19 +113,11 @@ class Conversations:
             conn.close()
             return True
 
-    def get_conversation_type_by_id(self, converID):
+    def get_conver_spdata_by_id(self, converID, spdata):
         conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT " + self.__conversationtype + " from " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(converID) + "'"
-        cursor = conn.execute(query)
-        conver_type = cursor.fetchone()[0]
-        conn.close()
-        return conver_type
-
-    def get_conver_image_by_id(self, converID):
-        conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT " + self.__conversationimage + " from " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(
+        query = "SELECT " + spdata + " from " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(
             converID) + "'"
         cursor = conn.execute(query)
-        conver_image = cursor.fetchone()[0]
+        conver_spdata = cursor.fetchone()[0]
         conn.close()
-        return conver_image
+        return conver_spdata

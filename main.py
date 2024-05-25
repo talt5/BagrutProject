@@ -218,8 +218,13 @@ class ServerComms:
             case ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_FAIL_HEADER_CODE:
                 print("failed to receive rsa key")
             case ResponseCodes.CREATE_NEW_CONVERSATION_SUCCESS_HEADER_CODE:
-                seperated_data = data.decode().split(Constants.SEPERATOR)
-                self.commsdata.update_selected_conversation(id=seperated_data[0], name=seperated_data[1], image=seperated_data[2])
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                if int(sep_data[1]) == 1:
+                    self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3],
+                                                                participants=None)
+                elif int(sep_data[1]) == 2:
+                    self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3],
+                                                                participants=sep_data[4])
                 app.frames["ChatPage"].update_selected_conversation()
             case ResponseCodes.CLIENT_SENDING_MESSAGE_SUCCESS_HEADER_CODE:
                 print("amazing")
@@ -242,7 +247,11 @@ class ServerComms:
                     app.frames["ChatPage"].chat_containers[sep_data[0]].oldest_msg_id = int(sep_data[1])
             case ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE:
                 sep_data = data.decode().split(Constants.SEPERATOR)
-                self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[1], image=sep_data[2])
+                if int(sep_data[1]) == 1:
+                    self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3], participants=None)
+                elif int(sep_data[1]) == 2:
+                    self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3],
+                                                                participants=sep_data[4])
                 app.frames["ChatPage"].update_selected_conversation()
 
     def send_aes_key(self):
@@ -533,7 +542,7 @@ class ChatPage(tk.Frame):
             self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]] = ChatContainer(
                 parent=self.main_chat_container, controller=self.controller,
                 converID=self.controller.servercomms.commsdata.selected_conversation["ID"],
-                conver_name=self.controller.servercomms.commsdata.selected_conversation["name"], conver_image=self.controller.servercomms.commsdata.selected_conversation["image"])
+                conver_name=self.controller.servercomms.commsdata.selected_conversation["name"], conver_image=self.controller.servercomms.commsdata.selected_conversation["image"], participants=self.controller.servercomms.commsdata.selected_conversation["participants"])
             self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].grid(row=0,
                                                                                                          column=0,
                                                                                                          sticky="nsew")
@@ -567,12 +576,12 @@ class ChatSelectionButton(tk.Button):
                            compound=tk.LEFT)
 
     def select_conversation(self):
-        self.controller.servercomms.commsdata.update_selected_conversation(id=self.converID, name=self.conver_name)
+        self.controller.servercomms.commsdata.update_selected_conversation(id=self.converID, name=self.conver_name, image=self.photo)
         self.controller.frames["ChatPage"].update_selected_conversation()
 
 
 class ChatContainer(tk.Frame):
-    def __init__(self, parent, controller, converID, conver_name, conver_image=None):
+    def __init__(self, parent, controller, converID, conver_name, conver_image=None, participants=None):
         tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
         self.controller = controller
         self.converID = converID
@@ -580,7 +589,7 @@ class ChatContainer(tk.Frame):
         self.oldest_msg_id = sys.maxsize
         self.conver_header = ChatHeaderContainer(parent=self, controller=self.controller, converID=self.converID,
                                                  conver_name=self.conver_name,
-                                                 picture=conver_image)
+                                                 picture=conver_image, participants=participants)
         self.canvas = tk.Canvas(self, borderwidth=0)
         self.messages_frame = tk.Frame(self.canvas)
         self.messages_frame.columnconfigure(1, weight=1)
@@ -619,7 +628,7 @@ class ChatContainer(tk.Frame):
 
 
 class ChatHeaderContainer(tk.Frame):
-    def __init__(self, parent, controller, converID, conver_name, picture, participants=[""]):
+    def __init__(self, parent, controller, converID, conver_name, picture, participants):
         tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
         self.controller = controller
         self.photo = Image.open(io.BytesIO(base64.b64decode(picture)))
@@ -627,9 +636,7 @@ class ChatHeaderContainer(tk.Frame):
         self.photo = ImageTk.PhotoImage(self.photo)
         self.conver_picture_label = tk.Label(self, image=self.photo)
         self.name_label = tk.Label(self, text=conver_name, font=("MS Sans Serif", "16", "bold"))
-        participants = ", ".join(participants)
         self.participants_label = tk.Label(self, text=participants)
-
         self.conver_picture_label.grid(row=1, column=1, rowspan=2)
         self.name_label.grid(row=1, column=2)
         self.participants_label.grid(row=2, column=2)
@@ -651,8 +658,6 @@ class MessageContainer(tk.Frame):
         else:
             self.msg_senderw.pack(side=tk.LEFT)
             self.msg_textw.pack()
-        #self.msg_senderw.grid(row=1)
-        #self.msg_textw.grid(row=2)
 
 
 class ServerCommsData:
@@ -661,7 +666,7 @@ class ServerCommsData:
         self.userId = None
         self.username = None
         self.nickname = None
-        self.selected_conversation = {"ID": None, "name": None}
+        self.selected_conversation = {"ID": None, "name": None, "image": None, "participants": None}
         self.aes = AESEncryption()
         self.rsa = RSAEncryption()
         self.encrypted_comms = False
@@ -692,10 +697,11 @@ class ServerCommsData:
     def set_nickname(self, nickname):
         self.nickname = nickname
 
-    def update_selected_conversation(self, id, name, image):
+    def update_selected_conversation(self, id, name, image, participants=None):
         self.selected_conversation["ID"] = id
         self.selected_conversation["name"] = name
         self.selected_conversation["image"] = image
+        self.selected_conversation["participants"] = participants
 
 
 class Constants:
