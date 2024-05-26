@@ -105,3 +105,11 @@ class Conversation:
         query = "SELECT " + self.__messageID + " FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = (SELECT MAX(" + self.__messageID + ") FROM " + self.__msgtablename + ");"
         cursor = conn.execute(query)
         return cursor.fetchone()[0]
+
+    def delete_message(self, messageID: int):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "DELETE FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = " + "'" + str(
+            messageID) + "'"
+        conn.execute(query)
+        conn.commit()
+        conn.close()

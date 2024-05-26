@@ -153,7 +153,8 @@ class ServerComms:
 
     def create_new_conversation_action(self, name, type, participants, image):
         header = ResponseCodes.CREATE_NEW_CONVERSATION_HEADER_CODE
-        msg = str(name) + Constants.SEPERATOR + str(type) + Constants.SEPERATOR + participants + Constants.SEPERATOR + image
+        msg = str(name) + Constants.SEPERATOR + str(
+            type) + Constants.SEPERATOR + participants + Constants.SEPERATOR + image
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -169,7 +170,6 @@ class ServerComms:
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
-    # TODO: Support avatar poses and files.
     def send_message(self, converID, text):
         header = ResponseCodes.CLIENT_SENDING_MESSAGE_HEADER_CODE
         msg = converID + Constants.SEPERATOR + text
@@ -183,6 +183,12 @@ class ServerComms:
             msg = str(converID) + Constants.SEPERATOR + str(from_msg_id)
             snd = threading.Thread(target=self.send_to_server(header, msg))
             snd.start()
+
+    def delete_message(self, converID, msg_id):
+        header = ResponseCodes.DELETE_MESSAGE_HEADER_CODE
+        msg = str(converID) + Constants.SEPERATOR + str(msg_id)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
 
     def handle_packet(self, header, data):
         match header:
@@ -248,11 +254,15 @@ class ServerComms:
             case ResponseCodes.SELECT_CONVERSATION_SUCCESS_HEADER_CODE:
                 sep_data = data.decode().split(Constants.SEPERATOR)
                 if int(sep_data[1]) == 1:
-                    self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3], participants=None)
+                    self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3],
+                                                                participants=None)
                 elif int(sep_data[1]) == 2:
                     self.commsdata.update_selected_conversation(id=sep_data[0], name=sep_data[2], image=sep_data[3],
                                                                 participants=sep_data[4])
                 app.frames["ChatPage"].update_selected_conversation()
+            case ResponseCodes.DELETE_MESSAGE_HEADER_CODE:
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                app.frames["ChatPage"].chat_containers[sep_data[0]].delete_message(msg_id=sep_data[1])
 
     def send_aes_key(self):
         header = ResponseCodes.AES_KEY_HEADER_CODE
@@ -334,6 +344,7 @@ class ResponseCodes(IntEnum):
     GET_MESSAGES_HEADER_CODE = 200
     GET_MESSAGES_SUCCESS_HEADER_CODE = 201
     GET_MESSAGES_FAIL_HEADER_CODE = 202
+    DELETE_MESSAGE_HEADER_CODE = 210
 
 
 class App(tk.Tk):
@@ -462,12 +473,13 @@ class ConversationCreationPage(tk.Frame):
         self.participants_entry.insert(0, "Participants")
         self.photo_path = Constants.DEFAULT_CHAT_PICTURE_PATH
         self.photo = Image.open(self.photo_path)
-        self.photo = self.photo.resize((64,64))
+        self.photo = self.photo.resize((64, 64))
         self.photo = ImageTk.PhotoImage(self.photo)
         self.photo_label = tk.Label(self, image=self.photo)
         self.choose_image_button = tk.Button(self, text="Choose Image For Conversation",
                                              command=self.choose_image_button_action)
-        self.create_button = tk.Button(self, text="Create Conversation", command=lambda: self.create_conver_button_action())
+        self.create_button = tk.Button(self, text="Create Conversation",
+                                       command=lambda: self.create_conver_button_action())
 
         self.sel()
         self.title_label.pack(ipady=5, pady=5)
@@ -507,7 +519,10 @@ class ConversationCreationPage(tk.Frame):
     def create_conver_button_action(self):
         with open(self.photo_path, "rb") as img:
             image = base64.b64encode(img.read()).decode()
-        self.controller.servercomms.create_new_conversation_action(name=self.conver_name_entry.get(), type=self.radio_var.get(), participants=self.participants_entry.get(), image=image)
+        self.controller.servercomms.create_new_conversation_action(name=self.conver_name_entry.get(),
+                                                                   type=self.radio_var.get(),
+                                                                   participants=self.participants_entry.get(),
+                                                                   image=image)
         self.controller.show_frame("ChatPage")
         # Read image data and convert it to BASE64 string. Then call create_new_conver from servercomms.
 
@@ -538,25 +553,29 @@ class ChatPage(tk.Frame):
         self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
 
     def update_selected_conversation(self):
-        if not self.controller.servercomms.commsdata.selected_conversation["ID"] in self.chat_containers:
-            self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]] = ChatContainer(
+        commsdata = self.controller.servercomms.commsdata
+        if not commsdata.selected_conversation["ID"] in self.chat_containers:
+            self.chat_containers[commsdata.selected_conversation["ID"]] = ChatContainer(
                 parent=self.main_chat_container, controller=self.controller,
-                converID=self.controller.servercomms.commsdata.selected_conversation["ID"],
-                conver_name=self.controller.servercomms.commsdata.selected_conversation["name"], conver_image=self.controller.servercomms.commsdata.selected_conversation["image"], participants=self.controller.servercomms.commsdata.selected_conversation["participants"])
-            self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].grid(row=0,
-                                                                                                         column=0,
-                                                                                                         sticky="nsew")
+                converID=commsdata.selected_conversation["ID"],
+                conver_name=commsdata.selected_conversation["name"],
+                conver_image=commsdata.selected_conversation["image"],
+                participants=commsdata.selected_conversation["participants"])
+            self.chat_containers[commsdata.selected_conversation["ID"]].grid(row=0,
+                                                                             column=0,
+                                                                             sticky="nsew")
             self.chat_selection_buttons[
-                self.controller.servercomms.commsdata.selected_conversation["ID"]] = ChatSelectionButton(parent=self,
-                                                                                                         controller=self.controller,
-                                                                                                         converID=
-                                                                                                         self.controller.servercomms.commsdata.selected_conversation[
-                                                                                                             "ID"],
-                                                                                                         conver_name=
-                                                                                                         self.controller.servercomms.commsdata.selected_conversation[
-                                                                                                             "name"], conver_image=self.controller.servercomms.commsdata.selected_conversation["image"])
-            self.chat_selection_buttons[self.controller.servercomms.commsdata.selected_conversation["ID"]].pack(side=tk.LEFT)
-        self.chat_containers[self.controller.servercomms.commsdata.selected_conversation["ID"]].tkraise()
+                commsdata.selected_conversation["ID"]] = ChatSelectionButton(parent=self,
+                                                                             controller=self.controller,
+                                                                             converID=
+                                                                             commsdata.selected_conversation[
+                                                                                 "ID"],
+                                                                             conver_name=
+                                                                             commsdata.selected_conversation[
+                                                                                 "name"], conver_image=
+                                                                             commsdata.selected_conversation["image"])
+            self.chat_selection_buttons[commsdata.selected_conversation["ID"]].pack(side=tk.LEFT)
+        self.chat_containers[commsdata.selected_conversation["ID"]].tkraise()
 
     def add_message_to_chat(self, converID, msg_id, senderID, nickname=None, avatar=None, text=None, ctime=None,
                             data=None):
@@ -576,7 +595,8 @@ class ChatSelectionButton(tk.Button):
                            compound=tk.LEFT)
 
     def select_conversation(self):
-        self.controller.servercomms.commsdata.update_selected_conversation(id=self.converID, name=self.conver_name, image=self.photo)
+        self.controller.servercomms.commsdata.update_selected_conversation(id=self.converID, name=self.conver_name,
+                                                                           image=self.photo)
         self.controller.frames["ChatPage"].update_selected_conversation()
 
 
@@ -606,8 +626,10 @@ class ChatContainer(tk.Frame):
         self.message_send_button = tk.Button(self, text="Send",
                                              command=lambda: self.controller.servercomms.send_message(
                                                  converID=self.converID, text=self.message_entry.get()))
-        self.get_more_messages_button = tk.Button(self.messages_frame, text="Get New Messages", command=lambda: self.controller.servercomms.ask_for_old_msgs_action(converID=self.converID, from_msg_id=self.oldest_msg_id))
-        self.get_more_messages_button.grid(row=0, column=1)
+        self.get_more_messages_button = tk.Button(self.messages_frame, text="Get New Messages",
+                                                  command=lambda: self.controller.servercomms.ask_for_old_msgs_action(
+                                                      converID=self.converID, from_msg_id=self.oldest_msg_id))
+        self.get_more_messages_button.grid(row=0, column=1, sticky=tk.W)
         self.conver_header.pack(fill=tk.X)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.message_entry.pack()
@@ -619,12 +641,18 @@ class ChatContainer(tk.Frame):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def add_message(self, msg_id, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
-        msg = MessageContainer(parent=self.messages_frame, controller=self.controller, sender_id=senderID,
+        msg = MessageContainer(parent=self.messages_frame, controller=self.controller, converID=self.converID,
+                               sender_id=senderID,
                                msg_id=msg_id, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
         if senderID == self.controller.servercomms.commsdata.userId:
             msg.grid(row=int(msg_id) + 2, column=1, sticky=tk.W, pady=5)
         else:
             msg.grid(row=int(msg_id) + 2, column=1, sticky=tk.W, pady=5)
+
+    def delete_message(self, msg_id):
+        self.messages_frame.grid_slaves(row=int(msg_id) + 2, column=1)[0].destroy()
+        del_msg = tk.Label(self.messages_frame, text="Deleted message")
+        del_msg.grid(row=int(msg_id) + 2, column=1, sticky=tk.W)
 
 
 class ChatHeaderContainer(tk.Frame):
@@ -637,17 +665,19 @@ class ChatHeaderContainer(tk.Frame):
         self.conver_picture_label = tk.Label(self, image=self.photo)
         self.name_label = tk.Label(self, text=conver_name, font=("MS Sans Serif", "16", "bold"))
         self.participants_label = tk.Label(self, text=participants)
-        self.conver_picture_label.grid(row=1, column=1, rowspan=2)
-        self.name_label.grid(row=1, column=2)
-        self.participants_label.grid(row=2, column=2)
+        self.conver_picture_label.grid(row=1, column=1, rowspan=2, sticky=tk.W)
+        self.name_label.grid(row=1, column=2, sticky=tk.W)
+        self.participants_label.grid(row=2, column=2, sticky=tk.W)
 
 
 class MessageContainer(tk.Frame):
     # TODO: Create different message layouts according to message type.
-    def __init__(self, parent, controller, msg_id, sender_id, nickname="test", avatar=None, text=None, ctime=None,
+    def __init__(self, parent, controller, converID, msg_id, sender_id, nickname="test", avatar=None, text=None,
+                 ctime=None,
                  data=None):
         tk.Frame.__init__(self, parent, highlightbackground="blue", highlightthickness=1)
         self.controller = controller
+        self.converID = converID
         self.msg_id = msg_id
         self.msg_sender = sender_id
         self.msg_senderw = tk.Label(self, text=nickname)
@@ -658,6 +688,24 @@ class MessageContainer(tk.Frame):
         else:
             self.msg_senderw.pack(side=tk.LEFT)
             self.msg_textw.pack()
+
+        self.rc_menu = tk.Menu(self, tearoff=0)
+        self.rc_menu.add_command(label="Info")  # Popup with info
+        self.rc_menu.add_separator()
+        self.rc_menu.add_command(label="Copy")  # Copies to clipboard
+        self.rc_menu.add_separator()
+        self.rc_menu.add_command(label="Delete", command=self.delete_action)  # Deletes message
+        self.msg_textw.bind("<Button-3>", self.do_popup)
+
+    def do_popup(self, event):
+        print("gay")
+        try:
+            self.rc_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.rc_menu.grab_release()
+
+    def delete_action(self):
+        self.controller.servercomms.delete_message(converID=self.converID, msg_id=self.msg_id)
 
 
 class ServerCommsData:

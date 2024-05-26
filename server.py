@@ -352,6 +352,13 @@ class Server(object):
                 except Exception as error:
                     print(error)
 
+            case ResponseCodes.DELETE_MESSAGE_HEADER_CODE:
+                try:
+                    sep_data = data.decode().split(Constants.SEPERATOR)
+                    self.delete_message(converID=sep_data[0], messageID=sep_data[1])
+                except Exception as error:
+                    print(traceback.format_exc())
+
     def send_to_user_all_his_convers(self, client):
         try:
             user_conversations = client.userdb.get_all_convers()
@@ -422,6 +429,20 @@ class Server(object):
                     self.send_message_to_client(converID=converID, messageID=messageID, client=self.logged_in_clients[userID])
         except Exception as error:
             print(error)
+
+    def delete_message(self, converID, messageID):
+        try:
+            mdb = messagedb.Conversation(conversationID=converID)
+            mdb.delete_message(messageID=messageID)
+            participants = mdb.get_all_participant_ids()
+            header = ResponseCodes.DELETE_MESSAGE_HEADER_CODE
+            for userID in participants:
+                if userID in self.logged_in_clients:
+                    msg = str(converID) + Constants.SEPERATOR + str(messageID)
+                    snd = threading.Thread(target=self.send_to_client, args=(header, msg, self.logged_in_clients[userID].conn, self.logged_in_clients[userID]))
+                    snd.start()
+        except Exception as error:
+            print(traceback.format_exc())
 
     def send_message_to_client(self, converID, messageID, client):
         try:
@@ -577,6 +598,7 @@ class ResponseCodes(IntEnum):
     GET_MESSAGES_HEADER_CODE = 200
     GET_MESSAGES_SUCCESS_HEADER_CODE = 201
     GET_MESSAGES_FAIL_HEADER_CODE = 202
+    DELETE_MESSAGE_HEADER_CODE = 210
 
 
 class Constants:
