@@ -97,14 +97,16 @@ class Conversation:
         conn = sqlite3.connect(self.DBNAME)
         conn.row_factory = lambda cursor, row: row[0]
         query = "SELECT " + self.__userId + " FROM " + self.__prtctablename
-        cursor = conn.execute(query)
-        return cursor.fetchall()
+        cursor = conn.execute(query).fetchall()
+        conn.close()
+        return cursor
 
     def get_last_message_id(self):
         conn = sqlite3.connect(self.DBNAME)
         query = "SELECT " + self.__messageID + " FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = (SELECT MAX(" + self.__messageID + ") FROM " + self.__msgtablename + ");"
-        cursor = conn.execute(query)
-        return cursor.fetchone()[0]
+        cursor = conn.execute(query).fetchone()[0]
+        conn.close()
+        return cursor
 
     def delete_message(self, messageID: int):
         conn = sqlite3.connect(self.DBNAME)
@@ -113,3 +115,14 @@ class Conversation:
         conn.execute(query)
         conn.commit()
         conn.close()
+
+    def check_if_user_is_admin(self, userID: int):
+        conn = sqlite3.connect(self.DBNAME)
+        print("checking if userid admin: " + str(userID))
+        query = "SELECT " + self.__isadmin + " from " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(userID) + "'"
+        cursor = conn.execute(query).fetchone()[0]
+        conn.close()
+        if cursor == 1:
+            return True
+        return False
+

@@ -552,7 +552,7 @@ class ChatPage(tk.Frame):
     def update_frame(self):
         self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
 
-    def update_selected_conversation(self):
+    def update_selected_conversation(self): # TODO: Change this shit we do not need selected_conversation.
         commsdata = self.controller.servercomms.commsdata
         if not commsdata.selected_conversation["ID"] in self.chat_containers:
             self.chat_containers[commsdata.selected_conversation["ID"]] = ChatContainer(

@@ -355,7 +355,11 @@ class Server(object):
             case ResponseCodes.DELETE_MESSAGE_HEADER_CODE:
                 try:
                     sep_data = data.decode().split(Constants.SEPERATOR)
-                    self.delete_message(converID=sep_data[0], messageID=sep_data[1])
+                    mdb = messagedb.Conversation(conversationID=sep_data[0])
+                    if mdb.check_if_user_is_admin(userID=client.userId):
+                        self.delete_message(converID=sep_data[0], messageID=sep_data[1])
+                    elif mdb.get_message(messageID=sep_data[1])[1] == client.userId:
+                        self.delete_message(converID=sep_data[0], messageID=sep_data[1])
                 except Exception as error:
                     print(traceback.format_exc())
 
@@ -509,7 +513,7 @@ class Server(object):
             return 3
         if blacklist in username or not 4 <= len(username) <= 32:
             return 4
-        if blacklist in password or not len(password) <= 1024:
+        if blacklist in password or not len(password) <= 1024: # TODO: Lower char count
             return 5
         return 0
 
