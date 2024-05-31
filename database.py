@@ -17,10 +17,11 @@ class Users:
         phonenum
         username
         password
+        profilepic
     """
     # TODO: Make a single select_userdata_by_something.
     def __init__(self, tablename="users", userId="userId", fullname="fullname", email="email", password="password",
-                 username="username", phonenum="phonenum"):
+                 username="username", phonenum="phonenum", profilepic="profilepic"):
         self.__tablename = tablename
         self.__userId = userId
         self.__fullname = fullname
@@ -28,6 +29,7 @@ class Users:
         self.__username = username
         self.__password = password
         self.__phonenum = phonenum
+        self.__profilepic = profilepic
 
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
@@ -37,7 +39,8 @@ class Users:
         query_str += " " + self.__email + " TEXT    NOT NULL ,"
         query_str += " " + self.__phonenum + " TEXT    NOT NULL ,"
         query_str += " " + self.__username + " TEXT    NOT NULL ,"
-        query_str += " " + self.__password + " TEXT    NOT NULL );"
+        query_str += " " + self.__password + " TEXT    NOT NULL ,"
+        query_str += " " + self.__profilepic + " TEXT    NOT NULL );"
 
         conn.execute(query_str)
         conn.commit()
@@ -49,48 +52,22 @@ class Users:
     def get_table_name(self):
         return self.__tablename
 
-    def insert_user(self, fullname, email, phonenum, username, password):
+    def insert_user(self, fullname, email, phonenum, username, password, profilepic):
         conn = sqlite3.connect(DBNAME)
-        insert_query = "INSERT INTO " + self.__tablename + " (" + self.__fullname + "," + self.__email + "," + self.__phonenum + "," + self.__username + "," + self.__password + ") VALUES " \
-                                                                                                                                                                                 "(" + "'" + fullname + "'" + "," + "'" + email + "'" + "," + "'" + phonenum + "'" + "," + "'" + username + "'" + "," + "'" + password + "'" + ");"
-        conn.execute(insert_query)
+        insert_query = "INSERT INTO " + self.__tablename + " (" + self.__fullname + "," + self.__email + "," + self.__phonenum + "," + self.__username + "," + self.__password + "," + self.__profilepic +") VALUES " + "(?,?,?,?,?,?);"
+        conn.execute(insert_query, (fullname, email, phonenum, username, password, profilepic))
         conn.commit()
         conn.close()
         print("Record created successfully")
-
-    def select_userdata_by_id(self, userId, spdata=None):
-        conn = sqlite3.connect(DBNAME)
-        print("Opened database successfully")
-
-        if spdata == "all" or spdata is None:
-            operation = "SELECT userId, fullname, email, phonenum, username, password  from " + self.__tablename + " where " + self.__userId + "=" \
-                        + str(userId)
-        elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password")):
-            operation = "SELECT " + spdata + " from " + self.__tablename + " where " + self.__username + "=" + "'" + str(
-                userId) + "'"
-        else:
-            return None
-
-        cursor = conn.execute(operation)
-        for row in cursor:
-            print("userId = ", row[0])
-            print("fullname = ", row[1])
-            print("email = ", row[2])
-            print("phonenum = ", row[3])
-            print("username = ", row[4])
-            print("password = ", row[5])
-
-        print("Operation done successfully")
-        conn.close()
 
     def select_userdata_by_username(self, username, spdata):
         conn = sqlite3.connect(DBNAME)
         print(spdata)
         print("Opened database successfully")
         if spdata == "all" or spdata is None:
-            operation = "SELECT userId, fullname, email, phonenum, username, password  from " + self.__tablename + " where " + self.__username + "=" \
+            operation = "SELECT userId, fullname, email, phonenum, username, password, profilepic  from " + self.__tablename + " where " + self.__username + "=" \
                         + "'" + str(username) + "'"
-        elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password")):
+        elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password", "profilepic")):
             operation = "SELECT " + spdata + " from " + self.__tablename + " where " + self.__username + "=" + "'" + str(
                 username) + "'"
         else:
@@ -113,9 +90,9 @@ class Users:
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
         if spdata == "all":
-            operation = "SELECT userId, fullname, email, phonenum, username, password  from " + self.__tablename + " where " + self.__userId + "=" \
+            operation = "SELECT userId, fullname, email, phonenum, username, password, profilepic  from " + self.__tablename + " where " + self.__userId + "=" \
                         + "'" + str(userId) + "'"
-        elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password")):
+        elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password", "profilepic")):
             operation = "SELECT " + spdata + " from " + self.__tablename + " where " + self.__userId + "=" + "'" + str(
                 userId) + "'"
         else:

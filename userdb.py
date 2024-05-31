@@ -34,7 +34,8 @@ class User:
         # TODO: Check if sender is part of the conversation.
         insert_query = (
                     "INSERT INTO " + self.__CONVERSATION_PARTICIPANT_TABLE + " (" + self.__CONVERSATIONID + ") VALUES (?)")
-        conn.execute(insert_query, str(conversationID))
+        print(conversationID)
+        conn.execute(insert_query, (str(conversationID),))
         conn.commit()
         conn.close()
         print("Conversation added successfully")

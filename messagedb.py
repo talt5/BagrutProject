@@ -66,11 +66,11 @@ class Conversation:
 
     def insert_participant(self, userID: int, isadmin=0):
         conn = sqlite3.connect(self.DBNAME)
-        insert_query = (
-                    "INSERT INTO " + self.__prtctablename + " (" + self.__userId + "," + self.__isadmin + ") VALUES "
-                    + "(?, ?)")
-        conn.execute(insert_query, (userID, isadmin))
-        conn.commit()
+        if not self.check_if_user_is_participating(userID=userID):
+            insert_query = ("INSERT INTO " + self.__prtctablename + " (" + self.__userId + "," + self.__isadmin + ") VALUES "
+                        + "(?, ?)")
+            conn.execute(insert_query, (userID, isadmin))
+            conn.commit()
         conn.close()
 
     def check_if_user_is_participating(self, userID: int):

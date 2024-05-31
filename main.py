@@ -124,7 +124,7 @@ class ServerComms:
         except socket.error as e:
             print(e)
 
-    def register_action(self, fullname, email, phonenum, username, password):
+    def register_action(self, fullname, email, phonenum, username, password, profilepic):
 
         # TODO: make an error message for each blacklisted entry
         if self.check_if_in_blacklist_reg(fullname, email, phonenum, username, password) != 0:
@@ -134,8 +134,7 @@ class ServerComms:
         password = self.password_hash(password)
         header = ResponseCodes.REGIST_HEADER_CODE
         msg = str(fullname) + Constants.SEPERATOR + str(email) + Constants.SEPERATOR + str(
-            phonenum) + Constants.SEPERATOR + str(
-            username) + Constants.SEPERATOR + str(password)
+            phonenum) + Constants.SEPERATOR + str(username) + Constants.SEPERATOR + str(password) + Constants.SEPERATOR + profilepic
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -416,10 +415,10 @@ class LoginPage(tk.Frame):
                                           username_login_entry.get(),
                                           password_login_entry.get())).start())
         back_button = tk.Button(self, text="Back", command=lambda: controller.show_frame("StartPage"))
-        username_login_entry.pack(ipady=5, pady=5)
-        password_login_entry.pack(ipady=5, pady=5)
-        submit_reg_button.pack(ipady=5, pady=5)
-        back_button.pack(ipady=5, pady=5)
+        username_login_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        password_login_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        submit_reg_button.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        back_button.pack(ipady=5, pady=5, ipadx=3, padx=3)
 
     def update_frame(self):
         pass
@@ -429,34 +428,63 @@ class RegistrationPage(tk.Frame):
     def __init__(self, parent, controller):
         tk.Frame.__init__(self, parent)
         self.controller = controller
-        full_name_reg_entry = tk.Entry(self, width=60)
-        full_name_reg_entry.insert(0, "Full name")
-        email_reg_entry = tk.Entry(self, width=60)
-        email_reg_entry.insert(0, "Email")
-        username_reg_entry = tk.Entry(self, width=60)
-        username_reg_entry.insert(0, "Username")
-        password_reg_entry = tk.Entry(self, width=60)
-        password_reg_entry.insert(0, "Password")
-        phonenum_reg_entry = tk.Entry(self, width=60)
-        phonenum_reg_entry.insert(0, "Phone number")
-        submit_reg_button = tk.Button(self, text="Submit",
-                                      command=lambda: threading.Thread(self.controller.servercomms.register_action(
-                                          full_name_reg_entry.get(),
-                                          email_reg_entry.get(),
-                                          phonenum_reg_entry.get(),
-                                          username_reg_entry.get(),
-                                          password_reg_entry.get())).start())
+        self.full_name_reg_entry = tk.Entry(self, width=60)
+        self.full_name_reg_entry.insert(0, "Full name")
+        self.email_reg_entry = tk.Entry(self, width=60)
+        self.email_reg_entry.insert(0, "Email")
+        self.username_reg_entry = tk.Entry(self, width=60)
+        self.username_reg_entry.insert(0, "Username")
+        self.password_reg_entry = tk.Entry(self, width=60)
+        self.password_reg_entry.insert(0, "Password")
+        self.phonenum_reg_entry = tk.Entry(self, width=60)
+        self.phonenum_reg_entry.insert(0, "Phone number")
+        self.photo_path = Constants.DEFAULT_CHAT_PICTURE_PATH
+        self.photo = Image.open(self.photo_path)
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.photo_label = tk.Label(self, image=self.photo)
+        choose_image_button = tk.Button(self, text="Choose Image For Profile",
+                                             command=self.choose_image_button_action)
+        submit_reg_button = tk.Button(self, text="Submit", command=self.register_action)
         back_button = tk.Button(self, text="Back", command=lambda: self.controller.show_frame("StartPage"))
-        full_name_reg_entry.pack(ipady=5, pady=5)
-        email_reg_entry.pack(ipady=5, pady=5)
-        phonenum_reg_entry.pack(ipady=5, pady=5)
-        username_reg_entry.pack(ipady=5, pady=5)
-        password_reg_entry.pack(ipady=5, pady=5)
-        submit_reg_button.pack(ipady=5, pady=5)
-        back_button.pack(ipady=5, pady=5)
+        self.full_name_reg_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        self.email_reg_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        self.phonenum_reg_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        self.username_reg_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        self.password_reg_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        self.photo_label.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        choose_image_button.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        submit_reg_button.pack(ipady=5, pady=5, ipadx=3, padx=3)
+        back_button.pack(ipady=5, pady=5, ipadx=3, padx=3)
 
     def update_frame(self):
         pass
+
+    def choose_image_button_action(self):
+        filetypes = (("Image files", "*.png"), ("All files", "*.*"))
+        filename = tk.filedialog.askopenfilename(title="Choose an image", filetypes=filetypes)
+        if filename:
+            self.change_photo(photo_path=filename)
+
+    def change_photo(self, photo_path):
+        self.photo_path = photo_path
+        self.photo = Image.open(self.photo_path)
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.photo_label.configure(image=self.photo)
+        self.photo_label.imgref = self.photo
+        self.controller.update()
+
+    def register_action(self):
+        with open(self.photo_path, "rb") as img:
+            image = base64.b64encode(img.read()).decode()
+            threading.Thread(self.controller.servercomms.register_action(
+                self.full_name_reg_entry.get(),
+                self.email_reg_entry.get(),
+                self.phonenum_reg_entry.get(),
+                self.username_reg_entry.get(),
+                self.password_reg_entry.get(),
+                image)).start()
 
 
 class ConversationCreationPage(tk.Frame):
@@ -492,7 +520,7 @@ class ConversationCreationPage(tk.Frame):
         self.create_button.pack(ipady=5, pady=5)
 
     def sel(self):
-        if self.radio_var.get() == 3:
+        if self.radio_var.get() == 1:
             self.conver_name_entry.configure(state=tk.DISABLED)
             self.photo_label.configure(state=tk.DISABLED)
             self.choose_image_button.configure(state=tk.DISABLED)
@@ -508,12 +536,12 @@ class ConversationCreationPage(tk.Frame):
             self.change_photo(photo_path=filename)
 
     def change_photo(self, photo_path):
+        self.photo_path = photo_path
         self.photo = Image.open(self.photo_path)
         self.photo = self.photo.resize((64, 64))
         self.photo = ImageTk.PhotoImage(self.photo)
         self.photo_label.configure(image=self.photo)
         self.photo_label.imgref = self.photo
-        self.photo_path = photo_path
         self.controller.update()
 
     def create_conver_button_action(self):

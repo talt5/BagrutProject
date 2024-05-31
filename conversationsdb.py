@@ -32,11 +32,11 @@ class Conversations:
         conn.commit()
         conn.close()
 
-    def create_new_conversation(self, creatorID, secUserID, name, image, contype):
+    def create_new_conversation(self, creatorID, secUserID, name, image=None, contype=1):
         conn = sqlite3.connect(self.DBNAME)
         print(name)
         if contype == 1 and not self.get_private_conversation_with_both_users(creatorID,
-                                                                              secUserID):  # FIXME URGENT: Conver_image should be only in type 2. Instead the conver_image shoud be pfp.
+                                                                              secUserID):
             insert_query = (
                     "INSERT INTO " + self.__tablename + " (" + self.__conversationname + "," + self.__conversationtype + "," + self.__conversationimage + ") " + "VALUES "
                     + "(?,?,?)")
@@ -44,11 +44,10 @@ class Conversations:
             cursor.execute(insert_query, (str(name), contype, image))
             conn.commit()
             converID = cursor.lastrowid
-            conver_image = self.get_conver_spdata_by_id(converID=converID, spdata=self.__conversationimage)
             conn.close()
 
             print("successfuly created private conversation: " + name)
-            return converID, name, conver_image
+            return converID, name
 
         elif contype == 1 and self.get_private_conversation_with_both_users(creatorID, secUserID):
             conn.close()

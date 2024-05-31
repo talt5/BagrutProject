@@ -107,10 +107,8 @@ class Server(object):
     def handle_packet(self, header, data, conn, addr, client):
         match header:
             case ResponseCodes.REGIST_HEADER_CODE:
-
                 try:
                     data_as_list = data.decode().split(Constants.SEPERATOR)
-
                     if self.check_if_in_blacklist_reg(data_as_list[0], data_as_list[1], data_as_list[2],
                                                       data_as_list[3],
                                                       data_as_list[4]) != 0:
@@ -121,41 +119,34 @@ class Server(object):
                                                    conn, client))
                         snd.start()
                         return
-
                     if not self.db.check_if_username_exists(data_as_list[3]):
                         self.db.insert_user(data_as_list[0], data_as_list[1], data_as_list[2], data_as_list[3],
-                                            data_as_list[4])
+                                            data_as_list[4], data_as_list[5])
                         print("Inserted User Successfuly!")
-
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(
                                                    ResponseCodes.REGIST_SUCCESS_HEADER_CODE, "registered beautifully",
                                                    conn,
                                                    client))
                         snd.start()
-
                     else:
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(ResponseCodes.REGIST_FAIL_USREXIST_HEADER_CODE,
                                                      "Failed regist usrnm exist", conn, client))
                         snd.start()
-
                 except Exception as error:
                     print("Did Not insert user!")
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
                                            args=(ResponseCodes.REGIST_FAIL_HEADER_CODE, "Failed regist", conn, client))
                     snd.start()
-
                 return
-
             case ResponseCodes.LOGIN_HEADER_CODE:
                 try:
                     print("logging in")
                     data_as_list = data.decode().split(Constants.SEPERATOR)
                     clientusername, clientpassword = data_as_list[0], data_as_list[1]
                     print(clientusername, clientpassword)
-
                     if self.check_if_in_blacklist_login(clientusername, clientpassword) != 0:
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(
@@ -164,9 +155,7 @@ class Server(object):
                                                    conn, client))
                         snd.start()
                         return
-
                     serverpassword = self.db.select_userdata_by_username(clientusername, "password")
-
                     if serverpassword == clientpassword:
                         userId = self.db.select_userdata_by_username(clientusername, "userId")
                         client.set_user_using_ID(userId)
@@ -184,16 +173,13 @@ class Server(object):
                                                args=(
                                                    ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn, client))
                         snd.start()
-
                 except Exception as error:
                     print(traceback.format_exc())
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
                                            args=(ResponseCodes.LOGIN_FAIL_HEADER_CODE, "Failed login", conn, client))
                     snd.start()
-
                 return
-
             case ResponseCodes.AES_KEY_HEADER_CODE:
                 try:
                     decrypted_key = client.rsa.decrypt(data)
@@ -205,7 +191,6 @@ class Server(object):
                     snd.start()
                     client.encrypted_comms = True
                     print("Encrypted communication enabled")
-
                 except Exception as error:
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
@@ -213,7 +198,6 @@ class Server(object):
                                                ResponseCodes.AES_KEY_FAIL_HEADER_CODE, "Failed to receive AES key",
                                                conn, client))
                     snd.start()
-
                 return
 
             case ResponseCodes.ASK_FOR_RSA_PUBLIC_KEY_HEADER_CODE:
@@ -226,7 +210,6 @@ class Server(object):
                     snd = threading.Thread(target=self.send_to_client,
                                            args=(header, msg, conn, client))
                     snd.start()
-
                 except Exception as error:
                     print(error)
                     snd = threading.Thread(target=self.send_to_client,
@@ -235,7 +218,6 @@ class Server(object):
                                                "Failed to receive RSA public key",
                                                conn, client))
                     snd.start()
-
                 return
 
             case ResponseCodes.CREATE_NEW_CONVERSATION_HEADER_CODE:
@@ -249,12 +231,12 @@ class Server(object):
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                             snd.start()
                             return
-
                         firstID = client.userId
                         conver_name = str(firstID) + str(secondID)
-                        converID, conver_name, conver_image = self.allconversationsdb.create_new_conversation(name=conver_name,
-                                                                                                contype=1, creatorID=firstID, secUserID=secondID, image=seperated_data[3])
+                        converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name,
+                                                                                                contype=1, creatorID=firstID, secUserID=secondID)
                         conver_name = self.db.select_userdata_by_username(username=seperated_data[2], spdata="fullname")
+                        conver_image = self.db.select_userdata_by_username(username=seperated_data[2], spdata="profilepic")
                         if converID is not None:
                             client.userdb.add_conversation(converID)
                             userdb.User(secondID).add_conversation(converID)
@@ -271,7 +253,6 @@ class Server(object):
                             if second_client:
                                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, second_client.conn, second_client))
                                 snd.start()
-
                         else:
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
                             msg = "already exists"
@@ -287,6 +268,8 @@ class Server(object):
                                 msg = "username: " + username + " does not exist. Did not add them to conversation."
                                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                                 snd.start()
+                                continue
+                            if client.userId == userID:
                                 continue
                             userIDs.append(userID)
                         creatorID = client.userId
@@ -308,7 +291,6 @@ class Server(object):
                             msg = "an error has occurred while creating conver"
                             snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                             snd.start()
-
                     else:
                         header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
                         msg = "something happened"
@@ -337,7 +319,6 @@ class Server(object):
                         msg = "User not participating in this chat!"
                         snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
                         snd.start()
-
                 except Exception as error:
                     print(error)
                     header = ResponseCodes.CLIENT_SENDING_MESSAGE_FAIL_HEADER_CODE
@@ -383,7 +364,7 @@ class Server(object):
                 second_userId.remove(client.userId)
                 second_userId = second_userId[0]
                 second_name = self.db.select_userdata_by_userId(userId=second_userId, spdata="fullname")
-                conver_image = self.allconversationsdb.get_conver_spdata_by_id(converID=converID, spdata="conversationimage")
+                conver_image = self.db.select_userdata_by_userId(userId=second_userId, spdata="profilepic")
                 msg = str(converID) + Constants.SEPERATOR + str(conver_type) + Constants.SEPERATOR + second_name + Constants.SEPERATOR + conver_image
                 snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
                 snd.start()
