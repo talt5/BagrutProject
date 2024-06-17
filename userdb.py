@@ -31,7 +31,6 @@ class User:
     def add_conversation(self, conversationID: int):
         conn = sqlite3.connect(self.DBNAME)
         print(conversationID)
-        # TODO: Check if sender is part of the conversation.
         insert_query = (
                     "INSERT INTO " + self.__CONVERSATION_PARTICIPANT_TABLE + " (" + self.__CONVERSATIONID + ") VALUES (?)")
         print(conversationID)
@@ -56,3 +55,10 @@ class User:
         query = query = "SELECT " + self.__CONVERSATIONID + " FROM " + self.__CONVERSATION_PARTICIPANT_TABLE
         cursor = conn.execute(query)
         return cursor.fetchall()
+
+    def remove_participancy(self, conversationID: int):
+        conn = sqlite3.connect(self.DBNAME)
+        query = query = "DELETE FROM " + self.__CONVERSATION_PARTICIPANT_TABLE + " WHERE " + self.__CONVERSATIONID + " = " + str(conversationID)
+        conn.execute(query)
+        conn.commit()
+        conn.close()

@@ -126,3 +126,13 @@ class Conversation:
             return True
         return False
 
+    def remove_participant(self, userID: int):
+        conn = sqlite3.connect(self.DBNAME)
+        if userID == 0:
+            query = "DELETE FROM " + self.__prtctablename
+        else:
+            query = "DELETE FROM " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(
+                userID) + "'"
+        conn.execute(query)
+        conn.commit()
+        conn.close()

@@ -22,7 +22,7 @@ from rsa import RSAEncryption
 from aes import AESEncryption
 
 
-# TODO URGENT: Compare between checksums of chat image for each chat.
+# TODO: Compare between checksums of chat image for each chat instead of sending the whole image each connection.
 class ServerComms:
     def __init__(self, server_ip, server_port):
         self.server_ip = server_ip
@@ -134,7 +134,8 @@ class ServerComms:
         password = self.password_hash(password)
         header = ResponseCodes.REGIST_HEADER_CODE
         msg = str(fullname) + Constants.SEPERATOR + str(email) + Constants.SEPERATOR + str(
-            phonenum) + Constants.SEPERATOR + str(username) + Constants.SEPERATOR + str(password) + Constants.SEPERATOR + profilepic
+            phonenum) + Constants.SEPERATOR + str(username) + Constants.SEPERATOR + str(
+            password) + Constants.SEPERATOR + profilepic
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -186,6 +187,36 @@ class ServerComms:
     def delete_message(self, converID, msg_id):
         header = ResponseCodes.DELETE_MESSAGE_HEADER_CODE
         msg = str(converID) + Constants.SEPERATOR + str(msg_id)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def remove_participant(self, converID, userID): # If userID = 0 it deletes the whole chat.
+        header = ResponseCodes.REMOVE_PARTICIPANT_HEADER_CODE
+        msg = str(converID) + Constants.SEPERATOR + str(userID)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def apply_conversation_changes(self, converID, type, data):
+        header = ResponseCodes.UPDATE_CONVERSATION_DATA_HEADER_CODE
+        msg = str(converID) + Constants.SEPERATOR + str(type) + Constants.SEPERATOR + str(data)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def leave_conversation_action(self, converID):
+        header = ResponseCodes.LEAVE_CONVERSATION_HEADER_CODE
+        msg = str(converID)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def get_participant_data(self, converID, userID):
+        header = ResponseCodes.GET_PARTICIPANT_HEADER_CODE
+        msg = str(converID) + Constants.SEPERATOR + str(userID)
+        snd = threading.Thread(target=self.send_to_server(header, msg))
+        snd.start()
+
+    def get_all_participant_data(self, converID):
+        header = ResponseCodes.GET_PARTICIPANTS_HEADER_CODE
+        msg = str(converID)
         snd = threading.Thread(target=self.send_to_server(header, msg))
         snd.start()
 
@@ -262,6 +293,20 @@ class ServerComms:
             case ResponseCodes.DELETE_MESSAGE_HEADER_CODE:
                 sep_data = data.decode().split(Constants.SEPERATOR)
                 app.frames["ChatPage"].chat_containers[sep_data[0]].delete_message(msg_id=sep_data[1])
+            case ResponseCodes.UPDATE_CONVERSATION_DATA_SUCCESS_HEADER_CODE:
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                app.frames["ChatPage"].chat_containers[sep_data[0]].update_data(type=int(sep_data[1]), data=sep_data[2])
+            case ResponseCodes.REMOVE_PARTICIPANT_SUCCESS_HEADER_CODE:
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                app.frames["ChatPage"].remove_participant(converID=sep_data[0], userID=sep_data[1])
+            case ResponseCodes.GET_PARTICIPANT_SUCCESS_HEADER_CODE:
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                app.frames["ChatPage"].chat_containers[sep_data[0]].participants_list[sep_data[1]] = ParticipantData(userID=sep_data[1], username=sep_data[2], nickname=sep_data[3], photo_b64=sep_data[4])
+                participants = ""
+                for prtc in app.frames["ChatPage"].chat_containers[sep_data[0]].participants_list:
+                    participants = ", ".join([participants, app.frames["ChatPage"].chat_containers[sep_data[0]].participants_list[prtc].nickname])
+                app.frames["ChatPage"].chat_containers[sep_data[0]].participants = participants
+                app.frames["ChatPage"].chat_containers[sep_data[0]].update_data(type=3, data=sep_data[1])
 
     def send_aes_key(self):
         header = ResponseCodes.AES_KEY_HEADER_CODE
@@ -344,6 +389,18 @@ class ResponseCodes(IntEnum):
     GET_MESSAGES_SUCCESS_HEADER_CODE = 201
     GET_MESSAGES_FAIL_HEADER_CODE = 202
     DELETE_MESSAGE_HEADER_CODE = 210
+    UPDATE_CONVERSATION_DATA_HEADER_CODE = 220
+    UPDATE_CONVERSATION_DATA_SUCCESS_HEADER_CODE = 221
+    UPDATE_CONVERSATION_DATA_FAIL_HEADER_CODE = 222
+    LEAVE_CONVERSATION_HEADER_CODE = 230
+    LEAVE_CONVERSATION_SUCCESS_HEADER_CODE = 231
+    REMOVE_PARTICIPANT_HEADER_CODE = 240
+    REMOVE_PARTICIPANT_SUCCESS_HEADER_CODE = 241
+    REMOVE_PARTICIPANT_FAILED_HEADER_CODE = 242
+    GET_PARTICIPANTS_HEADER_CODE = 250
+    GET_PARTICIPANT_HEADER_CODE = 2501
+    GET_PARTICIPANT_SUCCESS_HEADER_CODE = 251
+
 
 
 class App(tk.Tk):
@@ -444,7 +501,7 @@ class RegistrationPage(tk.Frame):
         self.photo = ImageTk.PhotoImage(self.photo)
         self.photo_label = tk.Label(self, image=self.photo)
         choose_image_button = tk.Button(self, text="Choose Image For Profile",
-                                             command=self.choose_image_button_action)
+                                        command=self.choose_image_button_action)
         submit_reg_button = tk.Button(self, text="Submit", command=self.register_action)
         back_button = tk.Button(self, text="Back", command=lambda: self.controller.show_frame("StartPage"))
         self.full_name_reg_entry.pack(ipady=5, pady=5, ipadx=3, padx=3)
@@ -580,7 +637,7 @@ class ChatPage(tk.Frame):
     def update_frame(self):
         self.username_label.configure(text="Logged in as: " + self.controller.servercomms.commsdata.get_nickname())
 
-    def update_selected_conversation(self): # TODO: Change this shit we do not need selected_conversation.
+    def update_selected_conversation(self):  # TODO: Change this shit we do not need selected_conversation.
         commsdata = self.controller.servercomms.commsdata
         if not commsdata.selected_conversation["ID"] in self.chat_containers:
             self.chat_containers[commsdata.selected_conversation["ID"]] = ChatContainer(
@@ -597,11 +654,7 @@ class ChatPage(tk.Frame):
                                                                              controller=self.controller,
                                                                              converID=
                                                                              commsdata.selected_conversation[
-                                                                                 "ID"],
-                                                                             conver_name=
-                                                                             commsdata.selected_conversation[
-                                                                                 "name"], conver_image=
-                                                                             commsdata.selected_conversation["image"])
+                                                                                 "ID"])
             self.chat_selection_buttons[commsdata.selected_conversation["ID"]].pack(side=tk.LEFT)
         self.chat_containers[commsdata.selected_conversation["ID"]].tkraise()
 
@@ -610,34 +663,54 @@ class ChatPage(tk.Frame):
         self.chat_containers[converID].add_message(msg_id=msg_id, senderID=senderID, nickname=nickname, avatar=avatar,
                                                    text=text, ctime=ctime, data=data)
 
+    def remove_participant(self, converID, userID):
+        if userID == app.servercomms.commsdata.userId:
+            self.chat_containers[converID].destroy()
+            self.chat_selection_buttons[converID].destroy()
+        else:
+            self.chat_containers[converID].participants_list.pop(userID)
+            participants = ""
+            for prtc in self.chat_containers[converID].participants_list:
+                participants = ", ".join([participants, self.chat_containers[converID].participants_list[prtc].nickname])
+            self.chat_containers[converID].participants = participants
+            self.chat_containers[converID].update_data(type=4, data=userID)
 
 class ChatSelectionButton(tk.Button):
-    def __init__(self, parent, controller, converID, conver_name, conver_image):
+    def __init__(self, parent, controller, converID):
+        self.parent = parent
+        self.chat_data = self.parent.chat_containers[converID]
         self.controller = controller
-        self.converID = converID
-        self.conver_name = conver_name
-        self.photo = Image.open(io.BytesIO(base64.b64decode(conver_image)))
+        self.photo = Image.open(io.BytesIO(base64.b64decode(self.chat_data.conver_image)))
         self.photo = self.photo.resize((64, 64))
         self.photo = ImageTk.PhotoImage(self.photo)
-        tk.Button.__init__(self, parent, image=self.photo, text=conver_name, command=self.select_conversation,
-                           compound=tk.LEFT)
+        tk.Button.__init__(self, parent, image=self.photo, text=self.chat_data.conver_name, command=self.select_conversation,
+                           compound=tk.TOP)
 
     def select_conversation(self):
-        self.controller.servercomms.commsdata.update_selected_conversation(id=self.converID, name=self.conver_name,
+        self.controller.servercomms.commsdata.update_selected_conversation(id=self.chat_data.converID, name=self.chat_data.conver_name,
                                                                            image=self.photo)
         self.controller.frames["ChatPage"].update_selected_conversation()
 
+    def update_data(self):
+        self.photo = Image.open(io.BytesIO(base64.b64decode(self.chat_data.conver_image)))
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.configure(text=self.chat_data.conver_name, image=self.photo)
 
 class ChatContainer(tk.Frame):
-    def __init__(self, parent, controller, converID, conver_name, conver_image=None, participants=None):
+    def __init__(self, parent, controller, converID, conver_name, conver_image=None, participants=None): # TODO: Add type of conver.
         tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
+        self.ctrl_widget = None
+        self.window = None
         self.controller = controller
         self.converID = converID
         self.conver_name = conver_name
+        self.conver_image = conver_image
+        self.participants = participants
+        self.participants_list = {}
         self.oldest_msg_id = sys.maxsize
-        self.conver_header = ChatHeaderContainer(parent=self, controller=self.controller, converID=self.converID,
-                                                 conver_name=self.conver_name,
-                                                 picture=conver_image, participants=participants)
+        self.control_panel_open = False
+        self.conver_header = ChatHeaderContainer(parent=self, controller=self.controller)
         self.canvas = tk.Canvas(self, borderwidth=0)
         self.messages_frame = tk.Frame(self.canvas)
         self.messages_frame.columnconfigure(1, weight=1)
@@ -662,6 +735,7 @@ class ChatContainer(tk.Frame):
         self.canvas.pack(fill=tk.BOTH, expand=True)
         self.message_entry.pack()
         self.message_send_button.pack()
+        self.controller.servercomms.get_all_participant_data(converID=self.converID)
 
         self.controller.servercomms.ask_for_old_msgs_action(converID=self.converID, from_msg_id=0)
 
@@ -669,8 +743,7 @@ class ChatContainer(tk.Frame):
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def add_message(self, msg_id, senderID, nickname, avatar=None, text=None, ctime=None, data=None):
-        msg = MessageContainer(parent=self.messages_frame, controller=self.controller, converID=self.converID,
-                               sender_id=senderID,
+        msg = MessageContainer(parent=self, controller=self.controller, sender_id=senderID,
                                msg_id=msg_id, nickname=nickname, avatar=avatar, text=text, ctime=ctime, data=data)
         if senderID == self.controller.servercomms.commsdata.userId:
             msg.grid(row=int(msg_id) + 2, column=1, sticky=tk.W, pady=5)
@@ -682,30 +755,190 @@ class ChatContainer(tk.Frame):
         del_msg = tk.Label(self.messages_frame, text="Deleted message")
         del_msg.grid(row=int(msg_id) + 2, column=1, sticky=tk.W)
 
+    def update_data(self, type, data):
+        if type == 1:
+            self.conver_name = data
+        if type == 2:
+            self.conver_image = data
+        self.conver_header.update_data()
+        self.controller.frames["ChatPage"].chat_selection_buttons[self.converID].update_data()
+        if self.control_panel_open is True:
+            if type == 3 or type == 4:
+                self.ctrl_widget.update_data(type=type, userID=data)
 
-class ChatHeaderContainer(tk.Frame):
-    def __init__(self, parent, controller, converID, conver_name, picture, participants):
+
+    def open_new_control_panel(self, event):
+        if self.control_panel_open is False: # TODO: Change to open only if group (type 2)
+            self.window = tk.Toplevel()
+            self.window.title(self.conver_name + "'s Control Panel")
+            self.window.protocol("WM_DELETE_WINDOW", self.ctrl_closing)
+            self.ctrl_widget = ChatControlPanel(parent=self.window, chat_data=self, controller=self.controller)
+            self.ctrl_widget.pack()
+            self.control_panel_open = True
+
+    def ctrl_closing(self):
+        self.control_panel_open = False
+        self.window.destroy()
+
+
+class ChatControlPanel(tk.Frame):
+    def __init__(self, parent, chat_data, controller):
+        tk.Frame.__init__(self, parent)
+        self.parent = parent
+        self.chat_data = chat_data
+        self.controller = controller
+        self.photo_path = None
+        self.conver_name_entry = tk.Entry(self)
+        self.conver_name_entry.insert(0, self.chat_data.conver_name)
+        self.photo = Image.open(io.BytesIO(base64.b64decode(self.chat_data.conver_image)))
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.photo_label = tk.Label(self, image=self.photo)
+        self.choose_image_button = tk.Button(self, text="Select Photo", command=self.choose_image_button_action)
+        self.update_button = tk.Button(self, text="Apply Changes", command=self.apply_changes)
+        self.leave_conversation_button = tk.Button(self, text="Leave Conversation", command=lambda: self.controller.servercomms.leave_conversation_action(converID=self.chat_data.converID))
+        self.delete_conversation_button = tk.Button(self, text="DELETE CONVERSATION", command=lambda: self.controller.servercomms.remove_participant(converID=self.chat_data.converID, userID=0))
+
+        self.canvas = tk.Canvas(self, borderwidth=0)
+        self.participants_frame = tk.Frame(self.canvas)
+        self.vsb = tk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview, jump=True)
+        self.canvas.configure(yscrollcommand=self.vsb.set)
+        self.vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.canvas.create_window((4, 4), window=self.participants_frame, anchor=tk.N, tags="self.participants_frame")
+        self.participants_frame.bind("<Configure>", self.onFrameConfigure)
+
+        self.conver_name_entry.pack()
+        self.photo_label.pack()
+        self.choose_image_button.pack()
+        self.update_button.pack()
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.leave_conversation_button.pack()
+        self.delete_conversation_button.pack()
+
+        for prtc in self.chat_data.participants_list:
+            ParticipantContainer(parent=self.participants_frame, controller=self.controller, userID=prtc,
+                                        converID=self.chat_data.converID, type=1).grid(row=prtc, column=1, pady=5)
+
+    def onFrameConfigure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def update_data(self, type, userID=None):
+        # self.conver_name_entry.delete(0, tk.END)
+        # self.conver_name_entry.insert(0, self.chat_data.conver_name)
+        # self.photo = Image.open(io.BytesIO(base64.b64decode(self.chat_data.conver_image)))
+        # self.photo = self.photo.resize((64, 64))
+        # self.photo = ImageTk.PhotoImage(self.photo)
+        # self.photo_label.configure(image=self.photo)
+        if type == 3:
+            prtc = ParticipantContainer(parent=self.participants_frame, controller=self.controller, userID=userID, converID=self.chat_data.converID, type=1)
+            prtc.grid(row=userID, column=1, pady=5)
+        elif type == 4:
+            self.participants_frame.grid_slaves(row=userID, column=1)[0].destroy()
+
+
+    def choose_image_button_action(self):
+        filetypes = (("Image files", "*.png"), ("All files", "*.*"))
+        filename = tk.filedialog.askopenfilename(title="Choose an image", filetypes=filetypes)
+        if filename:
+            self.change_photo(photo_path=filename)
+
+    def change_photo(self, photo_path):
+        self.photo_path = photo_path
+        self.photo = Image.open(self.photo_path)
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.photo_label.configure(image=self.photo)
+        self.photo_label.imgref = self.photo
+        self.controller.update()
+
+    def apply_changes(self):
+        if self.conver_name_entry.get() != self.chat_data.conver_name:
+            self.controller.servercomms.apply_conversation_changes(converID=self.chat_data.converID, type=1,
+                                                                   data=self.conver_name_entry.get())
+        if self.photo_path is not None:
+            with open(self.photo_path, "rb") as img:
+                image = base64.b64encode(img.read()).decode()
+            self.controller.servercomms.apply_conversation_changes(converID=self.chat_data.converID, type=2, data=image)
+
+
+class ParticipantData:
+    def __init__(self, userID, username, nickname, photo_b64):
+        self.userID = userID
+        self.username = username
+        self.nickname = nickname
+        self.photo_b64 = photo_b64
+
+
+class ParticipantContainer(tk.Frame):
+    def __init__(self, parent, controller, userID, converID, type):
         tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
         self.controller = controller
-        self.photo = Image.open(io.BytesIO(base64.b64decode(picture)))
+        self.parent = parent
+        self.chat_data = self.controller.frames["ChatPage"].chat_containers[converID]
+        self.userID = userID
+        self.photo = Image.open(io.BytesIO(base64.b64decode(self.chat_data.participants_list[self.userID].photo_b64)))
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.photo_label = tk.Label(self, image=self.photo)
+        self.username_label = tk.Label(self, text="@"+self.chat_data.participants_list[self.userID].username, foreground="#778899")
+        self.name_label = tk.Label(self, text=self.chat_data.participants_list[self.userID].nickname)
+        self.grid_rowconfigure(1, weight=3)
+        self.grid_rowconfigure(2, weight=1)
+
+        self.rc_menu = tk.Menu(self, tearoff=0)
+        self.rc_menu.add_command(label="Make Admin")  # Popup with info
+        self.rc_menu.add_separator()
+        self.rc_menu.add_command(label="Remove Participant", command=lambda: self.controller.servercomms.remove_participant(converID=self.chat_data.converID, userID=self.userID))  # Deletes message
+        self.photo_label.bind("<Button-3>", self.do_popup)
+
+        if type == 1: # Participant list
+            self.photo_label.grid(row=1, column=1, columnspan=2, sticky=tk.EW)
+            self.name_label.grid(row=2, column=1, sticky=tk.W)
+            self.username_label.grid(row=2, column=2, sticky=tk.E)
+
+        if type == 2: # TODO: In Message container
+            self.photo_label.grid(row=1, column=1)
+
+    def do_popup(self, event):
+        try:
+            self.rc_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.rc_menu.grab_release()
+
+
+class ChatHeaderContainer(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent, highlightbackground="black", highlightthickness=2)
+        self.controller = controller
+        self.parent = parent
+        self.photo = Image.open(io.BytesIO(base64.b64decode(self.parent.conver_image)))
         self.photo = self.photo.resize((64, 64))
         self.photo = ImageTk.PhotoImage(self.photo)
         self.conver_picture_label = tk.Label(self, image=self.photo)
-        self.name_label = tk.Label(self, text=conver_name, font=("MS Sans Serif", "16", "bold"))
-        self.participants_label = tk.Label(self, text=participants)
+        self.name_label = tk.Label(self, text=self.parent.conver_name, font=("MS Sans Serif", "16", "bold"))
+        self.participants_label = tk.Label(self, text=self.parent.participants)
         self.conver_picture_label.grid(row=1, column=1, rowspan=2, sticky=tk.W)
         self.name_label.grid(row=1, column=2, sticky=tk.W)
         self.participants_label.grid(row=2, column=2, sticky=tk.W)
+        self.conver_picture_label.bind("<Button-1>", self.parent.open_new_control_panel)
+
+    def update_data(self):
+        self.name_label.configure(text=self.parent.conver_name)
+        self.participants_label.configure(text=self.parent.participants)
+        self.photo = Image.open(io.BytesIO(base64.b64decode(self.parent.conver_image)))
+        self.photo = self.photo.resize((64, 64))
+        self.photo = ImageTk.PhotoImage(self.photo)
+        self.conver_picture_label.configure(image=self.photo)
 
 
 class MessageContainer(tk.Frame):
     # TODO: Create different message layouts according to message type.
-    def __init__(self, parent, controller, converID, msg_id, sender_id, nickname="test", avatar=None, text=None,
+    def __init__(self, parent, controller, msg_id, sender_id, nickname="test", avatar=None, text=None,
                  ctime=None,
                  data=None):
-        tk.Frame.__init__(self, parent, highlightbackground="blue", highlightthickness=1)
+        tk.Frame.__init__(self, parent.messages_frame, highlightbackground="blue", highlightthickness=1)
         self.controller = controller
-        self.converID = converID
+        self.parent = parent
         self.msg_id = msg_id
         self.msg_sender = sender_id
         self.msg_senderw = tk.Label(self, text=nickname)
@@ -716,7 +949,6 @@ class MessageContainer(tk.Frame):
         else:
             self.msg_senderw.pack(side=tk.LEFT)
             self.msg_textw.pack()
-
         self.rc_menu = tk.Menu(self, tearoff=0)
         self.rc_menu.add_command(label="Info")  # Popup with info
         self.rc_menu.add_separator()
@@ -726,14 +958,13 @@ class MessageContainer(tk.Frame):
         self.msg_textw.bind("<Button-3>", self.do_popup)
 
     def do_popup(self, event):
-        print("gay")
         try:
             self.rc_menu.tk_popup(event.x_root, event.y_root)
         finally:
             self.rc_menu.grab_release()
 
     def delete_action(self):
-        self.controller.servercomms.delete_message(converID=self.converID, msg_id=self.msg_id)
+        self.controller.servercomms.delete_message(converID=self.parent.converID, msg_id=self.msg_id)
 
 
 class ServerCommsData:

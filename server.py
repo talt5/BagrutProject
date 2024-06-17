@@ -160,7 +160,7 @@ class Server(object):
                         userId = self.db.select_userdata_by_username(clientusername, "userId")
                         client.set_user_using_ID(userId)
                         data_response = (str(client.get_userdata("userId")) + Constants.SEPERATOR + client.get_userdata(
-                            "fullname") + Constants.SEPERATOR + client.get_userdata("username"))
+                            "fullname") + Constants.SEPERATOR + client.get_userdata("username")) # TODO: Send profile picture.
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(
                                                    ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn,
@@ -235,8 +235,8 @@ class Server(object):
                         conver_name = str(firstID) + str(secondID)
                         converID, conver_name = self.allconversationsdb.create_new_conversation(name=conver_name,
                                                                                                 contype=1, creatorID=firstID, secUserID=secondID)
-                        conver_name = self.db.select_userdata_by_username(username=seperated_data[2], spdata="fullname")
-                        conver_image = self.db.select_userdata_by_username(username=seperated_data[2], spdata="profilepic")
+                        conver_name = self.db.select_userdata_by_userId(userId=secondID, spdata="fullname")
+                        conver_image = self.db.select_userdata_by_userId(userId=secondID, spdata="profilepic")
                         if converID is not None:
                             client.userdb.add_conversation(converID)
                             userdb.User(secondID).add_conversation(converID)
@@ -251,8 +251,7 @@ class Server(object):
                             if secondID in self.logged_in_clients:
                                 second_client = self.logged_in_clients[secondID]
                             if second_client:
-                                snd = threading.Thread(target=self.send_to_client, args=(header, msg, second_client.conn, second_client))
-                                snd.start()
+                                self.send_to_user_a_conver(converID=converID, client=second_client)
                         else:
                             header = ResponseCodes.CREATE_NEW_CONVERSATION_FAIL_HEADER_CODE
                             msg = "already exists"
@@ -329,7 +328,9 @@ class Server(object):
             case ResponseCodes.GET_MESSAGES_HEADER_CODE:
                 try:
                     sep_data = data.decode().split(Constants.SEPERATOR)
-                    self.send_to_user_older_messages(converID=sep_data[0], from_msg_id=sep_data[1], client=client)
+                    mdb = messagedb.Conversation(conversationID=sep_data[0])
+                    if mdb.check_if_user_is_participating(client.userId):
+                        self.send_to_user_older_messages(converID=sep_data[0], from_msg_id=sep_data[1], client=client)
                 except Exception as error:
                     print(error)
 
@@ -337,12 +338,60 @@ class Server(object):
                 try:
                     sep_data = data.decode().split(Constants.SEPERATOR)
                     mdb = messagedb.Conversation(conversationID=sep_data[0])
-                    if mdb.check_if_user_is_admin(userID=client.userId):
-                        self.delete_message(converID=sep_data[0], messageID=sep_data[1])
-                    elif mdb.get_message(messageID=sep_data[1])[1] == client.userId:
-                        self.delete_message(converID=sep_data[0], messageID=sep_data[1])
+                    if mdb.check_if_user_is_participating(client.userId):
+                        if mdb.check_if_user_is_admin(userID=client.userId):
+                            self.delete_message(converID=sep_data[0], messageID=sep_data[1])
+                        elif mdb.get_message(messageID=sep_data[1])[1] == client.userId:
+                            self.delete_message(converID=sep_data[0], messageID=sep_data[1])
                 except Exception as error:
                     print(traceback.format_exc())
+
+            case ResponseCodes.UPDATE_CONVERSATION_DATA_HEADER_CODE:
+                try:
+                    sep_data = data.decode().split(Constants.SEPERATOR)
+                    mdb = messagedb.Conversation(conversationID=sep_data[0])
+                    if mdb.check_if_user_is_participating(client.userId):
+                        if mdb.check_if_user_is_admin(userID=client.userId):
+                            self.update_conversation_data(converID=sep_data[0], type=sep_data[1], data=sep_data[2])
+                except Exception as error:
+                    print(traceback.format_exc())
+            case ResponseCodes.LEAVE_CONVERSATION_HEADER_CODE:
+                try:
+                    sep_data = data.decode().split(Constants.SEPERATOR)
+                    mdb = messagedb.Conversation(conversationID=sep_data[0])
+                    if mdb.check_if_user_is_participating(client.userId):
+                        del mdb
+                        self.remove_participant(converID=sep_data[0], userID=client.userId)
+                except Exception as error:
+                    print(traceback.format_exc())
+            case ResponseCodes.REMOVE_PARTICIPANT_HEADER_CODE:
+                try:
+                    sep_data = data.decode().split(Constants.SEPERATOR)
+                    mdb = messagedb.Conversation(conversationID=sep_data[0])
+                    if mdb.check_if_user_is_participating(client.userId):
+                        if mdb.check_if_user_is_admin(userID=client.userId):
+                            del mdb
+                            if int(sep_data[1]) != client.userId:
+                                if int(sep_data[1]) == 0:
+                                    self.remove_participant(converID=sep_data[0], userID=0)
+                                else:
+                                    self.remove_participant(converID=sep_data[0], userID=sep_data[1])
+                            else:
+                                header = ResponseCodes.REMOVE_PARTICIPANT_FAILED_HEADER_CODE
+                                msg = "Use 'Leave Conversation' button in order to remove yourself."
+                                snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                                snd.start()
+                        else:
+                            header = ResponseCodes.REMOVE_PARTICIPANT_FAILED_HEADER_CODE
+                            msg = "You are not an admin."
+                            snd = threading.Thread(target=self.send_to_client, args=(header, msg, conn, client))
+                            snd.start()
+                except Exception as error:
+                    print(traceback.format_exc())
+            case ResponseCodes.GET_PARTICIPANTS_HEADER_CODE:
+                sep_data = data.decode().split(Constants.SEPERATOR)
+                self.send_all_participants_data(converID=sep_data[0], client=client)
+
 
     def send_to_user_all_his_convers(self, client):
         try:
@@ -425,6 +474,86 @@ class Server(object):
                 if userID in self.logged_in_clients:
                     msg = str(converID) + Constants.SEPERATOR + str(messageID)
                     snd = threading.Thread(target=self.send_to_client, args=(header, msg, self.logged_in_clients[userID].conn, self.logged_in_clients[userID]))
+                    snd.start()
+        except Exception as error:
+            print(traceback.format_exc())
+
+    def send_all_participants_data(self, converID, client):
+        try:
+            mdb = messagedb.Conversation(conversationID=converID)
+            prtc_ids = mdb.get_all_participant_ids()
+            for userID in prtc_ids:
+                self.send_participant_data(converID=converID, userID=userID, client=client)
+        except Exception as error:
+            print(traceback.format_exc())
+
+
+    def send_participant_data(self, converID, userID, client):
+        try:
+            mdb = messagedb.Conversation(conversationID=converID)
+            if mdb.check_if_user_is_participating(userID=userID) and mdb.check_if_user_is_participating(userID=client.userId):
+                header = ResponseCodes.GET_PARTICIPANT_SUCCESS_HEADER_CODE
+                msg = str(converID) + Constants.SEPERATOR + str(userID) + Constants.SEPERATOR + self.db.select_userdata_by_userId(userId=userID, spdata="username") + Constants.SEPERATOR + self.db.select_userdata_by_userId(userId=userID, spdata="fullname") + Constants.SEPERATOR + self.db.select_userdata_by_userId(userId=userID, spdata="profilepic")
+                snd = threading.Thread(target=self.send_to_client, args=(header, msg, client.conn, client))
+                snd.start()
+        except Exception as error:
+            print(traceback.format_exc())
+
+    def remove_participant(self, converID, userID):
+        try:
+            mdb = messagedb.Conversation(conversationID=converID)
+            participants = mdb.get_all_participant_ids()
+            if userID == 0:
+                mdb.remove_participant(userID=0)
+                self.remove_conversation(converID=converID)
+                del mdb
+                for e_userID in participants:
+                    userdb.User(userID=e_userID).remove_participancy(conversationID=converID)
+                    if e_userID in self.logged_in_clients:
+                        header = ResponseCodes.REMOVE_PARTICIPANT_SUCCESS_HEADER_CODE
+                        msg = str(converID) + Constants.SEPERATOR + str(e_userID)
+                        snd = threading.Thread(target=self.send_to_client, args=(
+                        header, msg, self.logged_in_clients[e_userID].conn, self.logged_in_clients[e_userID]))
+                        snd.start()
+            else:
+                mdb.remove_participant(userID=userID)
+                userdb.User(userID=userID).remove_participancy(conversationID=converID)
+                prtc_after_removal = mdb.get_all_participant_ids()
+                del mdb
+                if not prtc_after_removal:
+                    self.remove_conversation(converID=converID)
+                for e_userID in participants:
+                    if e_userID in self.logged_in_clients:
+                        header = ResponseCodes.REMOVE_PARTICIPANT_SUCCESS_HEADER_CODE
+                        msg = str(converID) + Constants.SEPERATOR + str(userID)
+                        snd = threading.Thread(target=self.send_to_client, args=(
+                        header, msg, self.logged_in_clients[e_userID].conn, self.logged_in_clients[e_userID]))
+                        snd.start()
+        except Exception as error:
+            print(traceback.format_exc())
+
+    def remove_conversation(self, converID):
+        try:
+            self.allconversationsdb.remove_conversation(converID=converID)
+            os.remove("db/conversations/" + str(converID) + ".db")
+        except:
+            print(traceback.format_exc())
+
+    def update_conversation_data(self, converID, type, data):
+        try:
+            type = int(type)
+            if type == 1:  # Name change
+                self.allconversationsdb.change_conver_info(converID=converID, info=data, spdata="conversationname")
+            elif type == 2:  # Photo change
+                self.allconversationsdb.change_conver_info(converID=converID, info=data, spdata="conversationimage")
+            header = ResponseCodes.UPDATE_CONVERSATION_DATA_SUCCESS_HEADER_CODE
+            msg = str(converID) + Constants.SEPERATOR + str(type) + Constants.SEPERATOR + str(data)
+            mdb = messagedb.Conversation(conversationID=converID)
+            participants = mdb.get_all_participant_ids()
+            for userID in participants:
+                if userID in self.logged_in_clients:
+                    snd = threading.Thread(target=self.send_to_client, args=(
+                    header, msg, self.logged_in_clients[userID].conn, self.logged_in_clients[userID]))
                     snd.start()
         except Exception as error:
             print(traceback.format_exc())
@@ -584,6 +713,17 @@ class ResponseCodes(IntEnum):
     GET_MESSAGES_SUCCESS_HEADER_CODE = 201
     GET_MESSAGES_FAIL_HEADER_CODE = 202
     DELETE_MESSAGE_HEADER_CODE = 210
+    UPDATE_CONVERSATION_DATA_HEADER_CODE = 220
+    UPDATE_CONVERSATION_DATA_SUCCESS_HEADER_CODE = 221
+    UPDATE_CONVERSATION_DATA_FAIL_HEADER_CODE = 222
+    LEAVE_CONVERSATION_HEADER_CODE = 230
+    LEAVE_CONVERSATION_SUCCESS_HEADER_CODE = 231
+    REMOVE_PARTICIPANT_HEADER_CODE = 240
+    REMOVE_PARTICIPANT_SUCCESS_HEADER_CODE = 241
+    REMOVE_PARTICIPANT_FAILED_HEADER_CODE = 242
+    GET_PARTICIPANTS_HEADER_CODE = 250
+    GET_PARTICIPANT_HEADER_CODE = 2501
+    GET_PARTICIPANT_SUCCESS_HEADER_CODE = 251
 
 
 class Constants:

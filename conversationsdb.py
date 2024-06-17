@@ -52,7 +52,7 @@ class Conversations:
         elif contype == 1 and self.get_private_conversation_with_both_users(creatorID, secUserID):
             conn.close()
             print("conversation: " + name + "already exists")
-            return None, None, None
+            return None, None
 
         elif contype == 2:
             insert_query = (
@@ -103,7 +103,7 @@ class Conversations:
 
     def check_if_conversation_exists(self, name):
         conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT 1 from " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + name + "'"
+        query = "SELECT 1 from " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + str(name) + "'"
         cursor = conn.execute(query)
         if cursor.fetchone() is None:
             conn.close()
@@ -120,3 +120,18 @@ class Conversations:
         conver_spdata = cursor.fetchone()[0]
         conn.close()
         return conver_spdata
+
+    def change_conver_info(self, converID, info, spdata):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "UPDATE " + self.__tablename + " SET " + spdata + "='" + str(info) + "' WHERE " + self.__conversationID + " = " + "'" + str(
+            converID) + "'"
+        conn.execute(query)
+        conn.commit()
+        conn.close()
+
+    def remove_conversation(self, converID):
+        conn = sqlite3.connect(self.DBNAME)
+        query = "DELETE FROM " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(converID) + "'"
+        conn.execute(query)
+        conn.commit()
+        conn.close()
