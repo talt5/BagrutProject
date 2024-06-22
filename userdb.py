@@ -34,21 +34,10 @@ class User:
         insert_query = (
                     "INSERT INTO " + self.__CONVERSATION_PARTICIPANT_TABLE + " (" + self.__CONVERSATIONID + ") VALUES (?)")
         print(conversationID)
-        conn.execute(insert_query, (str(conversationID),))
+        conn.execute(insert_query, (conversationID,))
         conn.commit()
         conn.close()
         print("Conversation added successfully")
-
-    def check_if_part_of_conversation(self, conversationID: int):
-        conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT 1 from " + self.__CONVERSATION_PARTICIPANT_TABLE + " WHERE " + self.__CONVERSATIONID + " = " + "'" + str(conversationID) + "'"
-        cursor = conn.execute(query)
-        if cursor.fetchone() is None:
-            conn.close()
-            return False
-        else:
-            conn.close()
-            return True
 
     def get_all_convers(self):
         conn = sqlite3.connect(self.DBNAME)
@@ -58,7 +47,7 @@ class User:
 
     def remove_participancy(self, conversationID: int):
         conn = sqlite3.connect(self.DBNAME)
-        query = query = "DELETE FROM " + self.__CONVERSATION_PARTICIPANT_TABLE + " WHERE " + self.__CONVERSATIONID + " = " + str(conversationID)
-        conn.execute(query)
+        query = query = "DELETE FROM " + self.__CONVERSATION_PARTICIPANT_TABLE + " WHERE " + self.__CONVERSATIONID + " = (?)"
+        conn.execute(query, (conversationID,))
         conn.commit()
         conn.close()

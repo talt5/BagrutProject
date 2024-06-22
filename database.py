@@ -46,12 +46,6 @@ class Users:
         conn.commit()
         conn.close()
 
-    def __str__(self):
-        return "table  name is ", self.__tablename
-
-    def get_table_name(self):
-        return self.__tablename
-
     def insert_user(self, fullname, email, phonenum, username, password, profilepic):
         conn = sqlite3.connect(DBNAME)
         insert_query = "INSERT INTO " + self.__tablename + " (" + self.__fullname + "," + self.__email + "," + self.__phonenum + "," + self.__username + "," + self.__password + "," + self.__profilepic +") VALUES " + "(?,?,?,?,?,?);"
@@ -90,15 +84,13 @@ class Users:
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
         if spdata == "all":
-            operation = "SELECT userId, fullname, email, phonenum, username, password, profilepic  from " + self.__tablename + " where " + self.__userId + "=" \
-                        + "'" + str(userId) + "'"
+            operation = "SELECT userId, fullname, email, phonenum, username, password, profilepic  from " + self.__tablename + " where " + self.__userId + "= (?)"
         elif any(field == spdata for field in ("userId", "fullname", "email", "phonenum", "username", "password", "profilepic")):
-            operation = "SELECT " + spdata + " from " + self.__tablename + " where " + self.__userId + "=" + "'" + str(
-                userId) + "'"
+            operation = "SELECT " + spdata + " from " + self.__tablename + " where " + self.__userId + "= (?)"
         else:
             return None
 
-        cursor = conn.execute(operation)
+        cursor = conn.execute(operation, (userId,))
         userdata = []
         for row in cursor:
             if len(row) > 1:
@@ -114,8 +106,8 @@ class Users:
     def check_if_username_exists(self, username):
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
-        operation = "SELECT 1 from " + self.__tablename + " WHERE " + self.__username + " = " + "'" + username + "'"
-        cursor = conn.execute(operation)
+        operation = "SELECT 1 from " + self.__tablename + " WHERE " + self.__username + " = (?)"
+        cursor = conn.execute(operation, (username,))
         if cursor.fetchone() is None:
             conn.close()
             return False
@@ -123,25 +115,12 @@ class Users:
             conn.close()
             return True
 
-    def select_all(self):
-        conn = sqlite3.connect(DBNAME)
-        print("Opened database successfully")
-        str1 = "SELECT * from " + self.__tablename
-        cursor = conn.execute(str1)
-        for row in cursor:
-            print("userId = ", row[0])
-            print("fullname = ", row[1])
-            print("email = ", row[2])
-
-        conn.close()
-
     def delete_user(self, userId):
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
-        str1 = "DELETE FROM " + self.__tablename + " WHERE " + self.__userId + " = " \
-               + str(userId)
+        str1 = "DELETE FROM " + self.__tablename + " WHERE " + self.__userId + " = (?)"
 
-        conn.execute(str1)
+        conn.execute(str1, (userId,))
         conn.commit()
         print("Operation done successfully")
         conn.close()
@@ -149,10 +128,9 @@ class Users:
     def update_password(self, userId, password):
         conn = sqlite3.connect(DBNAME)
         print("Opened database successfully")
-        str1 = "UPDATE " + self.__tablename + " SET " + self.__password + " = " \
-               + "'" + password + "'" + " WHERE " + self.__userId + " = " + str(userId)
+        str1 = "UPDATE " + self.__tablename + " SET " + self.__password + " = :password" " WHERE " + self.__userId + " = :userID"
 
-        conn.execute(str1)
+        conn.execute(str1, {"password": password, "userID": userId})
         conn.commit()
         print("Operation done successfully")
         conn.close()

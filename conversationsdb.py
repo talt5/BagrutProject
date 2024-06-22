@@ -70,15 +70,6 @@ class Conversations:
 
         conn.close()
 
-    def get_conversationID_by_name(self, name):
-        conn = sqlite3.connect(self.DBNAME)
-        print(name)
-        query = "SELECT " + self.__conversationID + " FROM " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + name + "'"
-        cursor = conn.execute(query)
-        conversationid = cursor.fetchone()[0]
-        conn.close()
-        return conversationid
-
     def get_private_conversation_with_both_users(self, userID, sec_userID):
         conn = sqlite3.connect(self.DBNAME)
         userdata = userdb.User(userID=userID)
@@ -87,10 +78,9 @@ class Conversations:
             converID = converID[0]
             print("converid: ", converID)
             mdb = meesagedb.Conversation(conversationID=converID)
-            query = "SELECT " + self.__conversationtype + " FROM " + self.__tablename + " WHERE " + self.__conversationID + " = " + str(
-                converID)
+            query = "SELECT " + self.__conversationtype + " FROM " + self.__tablename + " WHERE " + self.__conversationID + " = (?)"
             cursor = conn.cursor()
-            cursor.execute(query)
+            cursor.execute(query, (converID,))
             conver_type = cursor.fetchone()[0]
             print("convertype: ", conver_type)
             if conver_type == 1 and mdb.check_if_user_is_participating(sec_userID):
@@ -103,8 +93,8 @@ class Conversations:
 
     def check_if_conversation_exists(self, name):
         conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT 1 from " + self.__tablename + " WHERE " + self.__conversationname + " = " + "'" + str(name) + "'"
-        cursor = conn.execute(query)
+        query = "SELECT 1 from " + self.__tablename + " WHERE " + self.__conversationname + " = (?)"
+        cursor = conn.execute(query, (name,))
         if cursor.fetchone() is None:
             conn.close()
             return False
@@ -114,24 +104,26 @@ class Conversations:
 
     def get_conver_spdata_by_id(self, converID, spdata):
         conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT " + spdata + " from " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(
-            converID) + "'"
-        cursor = conn.execute(query)
-        conver_spdata = cursor.fetchone()[0]
+        if any(field == spdata for field in (self.__conversationID, self.__conversationname, self.__conversationtype, self.__conversationimage)):
+            query = "SELECT " + spdata + " from " + self.__tablename + " WHERE " + self.__conversationID + " = (?)"
+            cursor = conn.execute(query, (converID,))
+            conver_spdata = cursor.fetchone()[0]
+            conn.close()
+            return conver_spdata
         conn.close()
-        return conver_spdata
 
     def change_conver_info(self, converID, info, spdata):
         conn = sqlite3.connect(self.DBNAME)
-        query = "UPDATE " + self.__tablename + " SET " + spdata + "='" + str(info) + "' WHERE " + self.__conversationID + " = " + "'" + str(
-            converID) + "'"
-        conn.execute(query)
-        conn.commit()
+        if any(field == spdata for field in
+               (self.__conversationID, self.__conversationname, self.__conversationtype, self.__conversationimage)):
+            query = "UPDATE " + self.__tablename + " SET " + spdata + "='" + str(info) + "' WHERE " + self.__conversationID + " = (?)"
+            conn.execute(query, (converID,))
+            conn.commit()
         conn.close()
 
     def remove_conversation(self, converID):
         conn = sqlite3.connect(self.DBNAME)
-        query = "DELETE FROM " + self.__tablename + " WHERE " + self.__conversationID + " = " + "'" + str(converID) + "'"
-        conn.execute(query)
+        query = "DELETE FROM " + self.__tablename + " WHERE " + self.__conversationID + " = (?)"
+        conn.execute(query, (converID,))
         conn.commit()
         conn.close()

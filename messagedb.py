@@ -67,8 +67,7 @@ class Conversation:
     def insert_participant(self, userID: int, isadmin=0):
         conn = sqlite3.connect(self.DBNAME)
         if not self.check_if_user_is_participating(userID=userID):
-            insert_query = ("INSERT INTO " + self.__prtctablename + " (" + self.__userId + "," + self.__isadmin + ") VALUES "
-                        + "(?, ?)")
+            insert_query = ("INSERT INTO " + self.__prtctablename + " (" + self.__userId + "," + self.__isadmin + ") VALUES (?, ?)")
             conn.execute(insert_query, (userID, isadmin))
             conn.commit()
         conn.close()
@@ -76,8 +75,8 @@ class Conversation:
     def check_if_user_is_participating(self, userID: int):
         conn = sqlite3.connect(self.DBNAME)
         print("checking userid: " + str(userID))
-        query = "SELECT 1 from " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(userID) + "'"
-        cursor = conn.execute(query)
+        query = "SELECT 1 from " + self.__prtctablename + " WHERE " + self.__userId + " = (?)"
+        cursor = conn.execute(query, (userID,))
         if cursor.fetchone() is None:
             conn.close()
             return False
@@ -87,9 +86,8 @@ class Conversation:
 
     def get_message(self, messageID: int):
         conn = sqlite3.connect(self.DBNAME)
-        query = "SELECT * FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = " + "'" + str(
-            messageID) + "'"
-        cursor = conn.execute(query).fetchone()
+        query = "SELECT * FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = (?)"
+        cursor = conn.execute(query, (messageID,)).fetchone()
         conn.close()
         return cursor
 
@@ -110,17 +108,16 @@ class Conversation:
 
     def delete_message(self, messageID: int):
         conn = sqlite3.connect(self.DBNAME)
-        query = "DELETE FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = " + "'" + str(
-            messageID) + "'"
-        conn.execute(query)
+        query = "DELETE FROM " + self.__msgtablename + " WHERE " + self.__messageID + " = (?)"
+        conn.execute(query, (messageID,))
         conn.commit()
         conn.close()
 
     def check_if_user_is_admin(self, userID: int):
         conn = sqlite3.connect(self.DBNAME)
         print("checking if userid admin: " + str(userID))
-        query = "SELECT " + self.__isadmin + " from " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(userID) + "'"
-        cursor = conn.execute(query).fetchone()[0]
+        query = "SELECT " + self.__isadmin + " from " + self.__prtctablename + " WHERE " + self.__userId + " = (?)"
+        cursor = conn.execute(query, (userID,)).fetchone()[0]
         conn.close()
         if cursor == 1:
             return True
@@ -130,9 +127,9 @@ class Conversation:
         conn = sqlite3.connect(self.DBNAME)
         if userID == 0:
             query = "DELETE FROM " + self.__prtctablename
+            conn.execute(query)
         else:
-            query = "DELETE FROM " + self.__prtctablename + " WHERE " + self.__userId + " = " + "'" + str(
-                userID) + "'"
-        conn.execute(query)
+            query = "DELETE FROM " + self.__prtctablename + " WHERE " + self.__userId + " = (?)"
+            conn.execute(query, (userID,))
         conn.commit()
         conn.close()

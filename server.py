@@ -30,7 +30,6 @@ class Server(object):
         self.port = port
         self.count_of_conns = 0
         self.db = database.Users()
-        self.lock = threading.Lock()
         self.allconversationsdb = conversationsdb.Conversations()
         self.clients = []  # Make it a dictionary for efficiency
         self.logged_in_clients = {}
@@ -159,8 +158,7 @@ class Server(object):
                     if serverpassword == clientpassword:
                         userId = self.db.select_userdata_by_username(clientusername, "userId")
                         client.set_user_using_ID(userId)
-                        data_response = (str(client.get_userdata("userId")) + Constants.SEPERATOR + client.get_userdata(
-                            "fullname") + Constants.SEPERATOR + client.get_userdata("username")) # TODO: Send profile picture.
+                        data_response = (str(userId) + Constants.SEPERATOR + str(self.db.select_userdata_by_userId(userId=userId, spdata="fullname")) + Constants.SEPERATOR + str(self.db.select_userdata_by_userId(userId=userId, spdata="username"))) # TODO: Send profile picture.
                         snd = threading.Thread(target=self.send_to_client,
                                                args=(
                                                    ResponseCodes.LOGIN_SUCCESS_HEADER_CODE, data_response, conn,
@@ -649,26 +647,9 @@ class ClientConnData:
         self.userdata = {"nickname": None, "email": None, "phonenum": None, "username": None}
         self.socket_in_use = False
 
-    def aes(self):
-        return self.aes
-
-    def rsa(self):
-        return self.rsa
-
-    def get_conn(self):
-        return self.conn
-
-    def get_addr(self):
-        return self.addr
-
     def get_userdata(self, spdata):
         db_userdata = self.db.select_userdata_by_userId(self.userId, spdata)
         return db_userdata
-
-    def userdb(self):
-        if self.userId is not None:
-            return self.userdb
-        return None
 
     def set_user_using_ID(self, ID):
         self.userId = ID
@@ -742,10 +723,6 @@ def represents_int(data):
     else:
         return True
 
-
-# TODO: Create response codes for sending messages, and asking to receive queued messeges.
-# TODO: Display messages for successful registration and login.
-# TODO: Change the packet sending protocol in order of it to actually work as intended.
 
 server = Server("127.0.0.1", Constants.PORT)
 server.startServer()
